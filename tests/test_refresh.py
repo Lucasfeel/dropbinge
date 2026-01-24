@@ -60,3 +60,65 @@ def test_refresh_emits_date_set_event(client, monkeypatch):
 
     cursor.close()
     conn.close()
+
+
+def test_refresh_respects_notify_date_changes(client, monkeypatch):
+    token, user_id = _register(client)
+
+    create_resp = client.post(
+        "/api/my/follows",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "target_type": "movie",
+            "tmdb_id": 777,
+            "prefs": {"notify_date_changes": False},
+        },
+    )
+    follow_id = create_resp.get_json()["id"]
+
+    conn = create_standalone_connection()
+    cursor = get_cursor(conn)
+    cursor.execute(
+        """
+        INSERT INTO tmdb_cache (
+            media_type, tmdb_id, season_number, payload, status_raw, release_date
+        ) VALUES (%s, %s, %s, %s, %s, %s);
+        """,
+        ("movie", 777, -1, Json({"id": 777, "title": "Muted Movie"}), None, None),
+    )
+    conn.commit()
+
+    def fake_movie_details(movie_id):
+        return {"id": movie_id, "title": "Muted Movie", "release_date": "2031-02-02"}
+
+    monkeypatch.setattr("services.refresh_service.tmdb_client.get_movie_details", fake_movie_details)
+
+    refresh_resp = client.post(
+        "/api/my/refresh",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert refresh_resp.status_code == 200
+
+    cursor.execute(
+        "SELECT release_date FROM tmdb_cache WHERE media_type = %s AND tmdb_id = %s AND season_number = %s;",
+        ("movie", 777, -1),
+    )
+    cache_row = cursor.fetchone()
+    assert cache_row["release_date"].isoformat() == "2031-02-02"
+
+    cursor.execute(
+        "SELECT event_type FROM change_events WHERE user_id = %s AND follow_id = %s;",
+        (user_id, follow_id),
+    )
+    events = cursor.fetchall()
+    assert not any(event["event_type"] in ("date_set", "date_changed") for event in events)
+
+    cursor.execute(
+        "SELECT channel FROM notification_outbox WHERE user_id = %s AND follow_id = %s;",
+        (user_id, follow_id),
+    )
+    outbox = cursor.fetchall()
+    assert outbox == []
+
+    cursor.close()
+    conn.close()

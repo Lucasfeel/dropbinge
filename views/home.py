@@ -43,25 +43,48 @@ def home_feed(payload):
     follows = cursor.fetchall()
     today = datetime.date.today()
 
-    upcoming = []
-    tbd = []
-    for follow in follows:
-        date_value = None
+    def _follow_date_info(follow):
+        primary_date = None
+        date_field = None
         if follow["target_type"] == "movie":
-            date_value = follow["release_date"]
+            primary_date = follow["release_date"]
+            date_field = "release_date"
         elif follow["target_type"] == "tv_season":
-            date_value = follow["season_air_date"]
+            primary_date = follow["season_air_date"]
+            date_field = "season_air_date"
         elif follow["target_type"] == "tv_full":
-            date_value = follow["next_air_date"]
+            primary_date = follow["next_air_date"]
+            date_field = "next_air_date"
 
-        if date_value:
-            if date_value >= today:
-                upcoming.append({**follow, "date": date_value})
+        is_concluded = follow["target_type"] == "tv_full" and follow["status_raw"] in ("Ended", "Canceled")
+        has_cache = follow.get("cache_updated_at") is not None
+        return primary_date, date_field, is_concluded, has_cache
+
+    upcoming = []
+    tbd_with_cache = []
+    tbd_needs_refresh = []
+    for follow in follows:
+        primary_date, date_field, is_concluded, has_cache = _follow_date_info(follow)
+
+        if primary_date:
+            if primary_date >= today and not is_concluded:
+                upcoming.append({**follow, "date": primary_date, "date_field": date_field})
         else:
-            tbd.append(follow)
+            if not is_concluded:
+                if has_cache:
+                    tbd_with_cache.append(follow)
+                else:
+                    tbd_needs_refresh.append(follow)
 
-    upcoming.sort(key=lambda item: item["date"])
-    tbd.sort(key=lambda item: item.get("cache_updated_at") or datetime.datetime.min, reverse=True)
+    def _upcoming_sort_key(item):
+        cache_updated_at = item.get("cache_updated_at")
+        cache_missing = cache_updated_at is None
+        cache_ts = cache_updated_at.timestamp() if cache_updated_at else 0
+        return (item["date"], cache_missing, -cache_ts)
+
+    upcoming.sort(key=_upcoming_sort_key)
+    tbd_with_cache.sort(key=lambda item: item["cache_updated_at"], reverse=True)
+    tbd_updates = tbd_with_cache + tbd_needs_refresh
 
     cursor.execute(
         """
@@ -89,11 +112,36 @@ def home_feed(payload):
         (user_id,),
     )
     recent_completes = cursor.fetchall()
+    summary_map = {
+        "season_binge_ready": "Season binge-ready",
+        "full_run_concluded": "Full run concluded",
+    }
+    for event in recent_completes:
+        event["event_summary"] = summary_map.get(event["event_type"], event["event_type"])
+
+    as_of = datetime.datetime.utcnow().isoformat() + "Z"
+    tbd_needs_refresh_count = len(tbd_needs_refresh)
+    meta = {
+        "as_of": as_of,
+        "counts": {
+            "upcoming_drops": len(upcoming),
+            "tbd_updates": len(tbd_updates),
+            "recent_completes": len(recent_completes),
+            "tbd_needs_refresh": tbd_needs_refresh_count,
+        },
+        "empty_messages": {
+            "upcoming_drops": "No upcoming drops yet. Follow titles and refresh to see dates.",
+            "tbd_updates": "No TBD titles right now.",
+            "recent_completes": "No recent completes yet.",
+        },
+    }
 
     return jsonify(
         {
             "upcoming_drops": upcoming,
-            "tbd_updates": tbd,
+            "tbd_updates": tbd_updates,
             "recent_completes": recent_completes,
+            "tbd_needs_refresh_count": tbd_needs_refresh_count,
+            "meta": meta,
         }
     )
