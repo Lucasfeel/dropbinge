@@ -5,7 +5,8 @@ import { FollowCard } from "../components/FollowCard";
 import { FollowModal } from "../components/FollowModal";
 import { useAuth } from "../hooks/useAuth";
 import { useFollows } from "../hooks/useFollows";
-import type { Follow } from "../types";
+import type { Follow, FollowPayload } from "../types";
+import { clearFollowIntent, getFollowIntent } from "../utils/followIntent";
 
 export const MyPage = () => {
   const { token, login, register, logout } = useAuth();
@@ -13,6 +14,8 @@ export const MyPage = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [editFollow, setEditFollow] = useState<Follow | null>(null);
+  const [pendingPayload, setPendingPayload] = useState<FollowPayload | null>(null);
+  const [pendingDetail, setPendingDetail] = useState<any | null>(null);
 
   const getFollowSubtitle = (follow: Follow) => {
     if (follow.target_type === "movie") {
@@ -34,6 +37,33 @@ export const MyPage = () => {
     refresh();
   };
 
+  const openFollowIntent = async () => {
+    const intent = getFollowIntent();
+    if (!intent) return;
+    try {
+      const detail =
+        intent.mediaType === "movie"
+          ? await apiFetch(`/api/tmdb/movie/${intent.tmdbId}`)
+          : await apiFetch(`/api/tmdb/tv/${intent.tmdbId}`);
+      setPendingPayload(intent.payload);
+      setPendingDetail(detail);
+    } catch (error) {
+      clearFollowIntent();
+    }
+  };
+
+  const handleLogin = async () => {
+    await login(email, password);
+    await refresh();
+    await openFollowIntent();
+  };
+
+  const handleRegister = async () => {
+    await register(email, password);
+    await refresh();
+    await openFollowIntent();
+  };
+
   return (
     <div className="page">
       {!token ? (
@@ -52,10 +82,10 @@ export const MyPage = () => {
             />
           </div>
           <div className="button-row">
-            <button className="button" onClick={() => login(email, password)}>
+            <button className="button" onClick={handleLogin}>
               Login
             </button>
-            <button className="button secondary" onClick={() => register(email, password)}>
+            <button className="button secondary" onClick={handleRegister}>
               Register
             </button>
           </div>
@@ -100,6 +130,24 @@ export const MyPage = () => {
               onSaved={() => {
                 refresh();
                 setEditFollow(null);
+              }}
+            />
+          )}
+          {!editFollow && pendingPayload && pendingDetail && (
+            <FollowModal
+              payload={pendingPayload}
+              detail={pendingDetail}
+              existingFollows={follows}
+              onClose={() => {
+                clearFollowIntent();
+                setPendingPayload(null);
+                setPendingDetail(null);
+              }}
+              onSaved={() => {
+                clearFollowIntent();
+                refresh();
+                setPendingPayload(null);
+                setPendingDetail(null);
               }}
             />
           )}
