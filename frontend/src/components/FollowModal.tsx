@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { apiFetch } from "../api";
 import type { Follow, FollowPayload, Prefs } from "../types";
@@ -34,6 +34,7 @@ type FollowModalProps = {
   onClose: () => void;
   onSaved: () => void;
   existingFollow?: Follow;
+  existingFollows?: Follow[];
 };
 
 export const FollowModal = ({
@@ -42,14 +43,36 @@ export const FollowModal = ({
   onClose,
   onSaved,
   existingFollow,
+  existingFollows,
 }: FollowModalProps) => {
   const [prefs, setPrefs] = useState<Prefs>(getInitialPrefs(existingFollow));
   const [seasonNumber, setSeasonNumber] = useState<number | undefined>(payload.seasonNumber);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const seasons = useMemo(() => {
     if (!detail?.seasons) return [];
     return detail.seasons.filter((season: any) => typeof season.season_number === "number");
   }, [detail]);
+
+  const activeExistingFollow = useMemo(() => {
+    if (existingFollow) return existingFollow;
+    if (payload.targetType !== "tv_season" || seasonNumber === undefined) return undefined;
+    return existingFollows?.find(
+      (follow) =>
+        follow.target_type === "tv_season" &&
+        follow.tmdb_id === payload.tmdbId &&
+        follow.season_number === seasonNumber,
+    );
+  }, [existingFollow, existingFollows, payload.targetType, payload.tmdbId, seasonNumber]);
+
+  useEffect(() => {
+    if (activeExistingFollow) {
+      setPrefs(getInitialPrefs(activeExistingFollow));
+    } else if (!existingFollow) {
+      setPrefs(defaultPrefs);
+    }
+  }, [activeExistingFollow, existingFollow]);
 
   const updatePref = (key: keyof Prefs, value: boolean | string) => {
     setPrefs((prev) => ({ ...prev, [key]: value }));
@@ -57,27 +80,39 @@ export const FollowModal = ({
 
   const save = async () => {
     if (payload.targetType === "tv_season" && seasonNumber === undefined) {
+      setError("Please select a season.");
       return;
     }
-    if (existingFollow) {
-      await apiFetch(`/api/my/follows/${existingFollow.id}`,
-        {
+    setSaving(true);
+    setError(null);
+    try {
+      if (activeExistingFollow) {
+        await apiFetch(`/api/my/follows/${activeExistingFollow.id}`, {
           method: "PATCH",
           body: JSON.stringify(prefs),
-        },
-      );
-    } else {
-      await apiFetch("/api/my/follows", {
-        method: "POST",
-        body: JSON.stringify({
-          target_type: payload.targetType,
-          tmdb_id: payload.tmdbId,
-          season_number: payload.targetType === "tv_season" ? seasonNumber : undefined,
-          prefs,
-        }),
-      });
+        });
+      } else {
+        await apiFetch("/api/my/follows", {
+          method: "POST",
+          body: JSON.stringify({
+            target_type: payload.targetType,
+            tmdb_id: payload.tmdbId,
+            season_number: payload.targetType === "tv_season" ? seasonNumber : undefined,
+            prefs,
+          }),
+        });
+      }
+      onSaved();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      if (message.includes("follow_already_exists") || message.includes("409")) {
+        setError("You already follow this target. Use Edit to change options.");
+      } else {
+        setError("Failed to save. Please try again.");
+      }
+    } finally {
+      setSaving(false);
     }
-    onSaved();
   };
 
   return (
@@ -89,7 +124,11 @@ export const FollowModal = ({
             <label>Season</label>
             <select
               value={seasonNumber ?? ""}
-              onChange={(event) => setSeasonNumber(Number(event.target.value))}
+              onChange={(event) => {
+                const value = event.target.value;
+                setSeasonNumber(value === "" ? undefined : Number(value));
+                setError(null);
+              }}
             >
               <option value="">Select</option>
               {seasons.map((season: any) => (
@@ -100,13 +139,16 @@ export const FollowModal = ({
             </select>
           </div>
         )}
+        {payload.targetType === "tv_season" && seasonNumber === undefined && (
+          <p className="muted">Please select a season.</p>
+        )}
         {payload.targetType === "tv_season" && !detail?.seasons && (
           <p className="muted">Season {seasonNumber ?? payload.seasonNumber ?? "TBD"}</p>
         )}
         {payload.targetType === "movie" && (
           <>
             <div className="field">
-              <label>Date set/changed</label>
+              <label>Release date set/changed</label>
               <input
                 type="checkbox"
                 checked={prefs.notify_date_changes}
@@ -128,7 +170,7 @@ export const FollowModal = ({
         {payload.targetType === "tv_season" && (
           <>
             <div className="field">
-              <label>Season date changes</label>
+              <label>Season premiere date set/changed</label>
               <input
                 type="checkbox"
                 checked={prefs.notify_date_changes}
@@ -144,20 +186,36 @@ export const FollowModal = ({
                   updatePref("notify_season_binge_ready", event.target.checked)
                 }
               />
+              <p className="muted">
+                Notifies when the final episode of the season has aired (binge-ready).
+              </p>
             </div>
           </>
         )}
         {payload.targetType === "tv_full" && (
-          <div className="field">
-            <label>Full run concluded</label>
-            <input
-              type="checkbox"
-              checked={prefs.notify_full_run_concluded}
-              onChange={(event) =>
-                updatePref("notify_full_run_concluded", event.target.checked)
-              }
-            />
-          </div>
+          <>
+            <div className="field">
+              <label>Full run concluded</label>
+              <input
+                type="checkbox"
+                checked={prefs.notify_full_run_concluded}
+                onChange={(event) =>
+                  updatePref("notify_full_run_concluded", event.target.checked)
+                }
+              />
+            </div>
+            <div className="field">
+              <label>Next drop date set/changed</label>
+              <input
+                type="checkbox"
+                checked={prefs.notify_date_changes}
+                onChange={(event) => updatePref("notify_date_changes", event.target.checked)}
+              />
+              <p className="muted">
+                Tracks changes to the next known episode air date (TMDB next_episode_to_air).
+              </p>
+            </div>
+          </>
         )}
         <div className="field">
           <label>Email</label>
@@ -183,9 +241,14 @@ export const FollowModal = ({
             <option value="all_updates">All updates</option>
           </select>
         </div>
+        {error && <p className="muted">{error}</p>}
         <div className="button-row">
-          <button className="button" onClick={save}>
-            Save
+          <button
+            className="button"
+            onClick={save}
+            disabled={saving || (payload.targetType === "tv_season" && seasonNumber === undefined)}
+          >
+            {saving ? "Saving..." : "Save"}
           </button>
           <button className="button secondary" onClick={onClose}>
             Cancel

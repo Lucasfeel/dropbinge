@@ -7,7 +7,11 @@ export const SeriesPage = () => {
   return (
     <div className="page">
       {series.map((follow) => (
-        <FollowCard key={follow.id} follow={follow} subtitle={follow.status_raw || "Status TBD"} />
+        <FollowCard
+          key={follow.id}
+          follow={follow}
+          subtitle={`Status: ${follow.status_raw || "Status TBD"} · Next: ${follow.next_air_date || "Next TBD"}`}
+        />
       ))}
     </div>
   );

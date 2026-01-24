@@ -14,6 +14,16 @@ export const MyPage = () => {
   const [password, setPassword] = useState("");
   const [editFollow, setEditFollow] = useState<Follow | null>(null);
 
+  const getFollowSubtitle = (follow: Follow) => {
+    if (follow.target_type === "movie") {
+      return `Movie · ${follow.release_date || "TBD"}`;
+    }
+    if (follow.target_type === "tv_season") {
+      return `TV Season S${follow.season_number ?? "?"} · ${follow.season_air_date || "TBD"}`;
+    }
+    return `Full run · Status: ${follow.status_raw || "TBD"} · Next: ${follow.next_air_date || "TBD"}`;
+  };
+
   const deleteFollow = async (followId: number) => {
     await apiFetch(`/api/my/follows/${followId}`, { method: "DELETE" });
     refresh();
@@ -65,7 +75,7 @@ export const MyPage = () => {
             <FollowCard
               key={follow.id}
               follow={follow}
-              subtitle={follow.target_type}
+              subtitle={getFollowSubtitle(follow)}
               actions={
                 <>
                   <button className="button secondary" onClick={() => setEditFollow(follow)}>

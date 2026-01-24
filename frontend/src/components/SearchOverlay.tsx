@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 
 import { apiFetch } from "../api";
 import { useAuth } from "../hooks/useAuth";
+import { useFollows } from "../hooks/useFollows";
+import type { Follow } from "../types";
 import type { FollowPayload } from "../types";
 import { FollowModal } from "./FollowModal";
 
@@ -13,11 +15,13 @@ type SearchOverlayProps = {
 
 export const SearchOverlay = ({ open, onClose, onFollowCreated }: SearchOverlayProps) => {
   const { isAuthenticated } = useAuth();
+  const { follows } = useFollows();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<any[]>([]);
   const [selected, setSelected] = useState<any | null>(null);
   const [detail, setDetail] = useState<any | null>(null);
   const [followPayload, setFollowPayload] = useState<FollowPayload | null>(null);
+  const [existingFollow, setExistingFollow] = useState<Follow | undefined>(undefined);
 
   const runSearch = async () => {
     if (!query.trim()) return;
@@ -51,6 +55,7 @@ export const SearchOverlay = ({ open, onClose, onFollowCreated }: SearchOverlayP
       setSelected(null);
       setDetail(null);
       setFollowPayload(null);
+      setExistingFollow(undefined);
     }
   }, [open]);
 
@@ -95,36 +100,63 @@ export const SearchOverlay = ({ open, onClose, onFollowCreated }: SearchOverlayP
                     : detail.first_air_date || "TBD"}
                 </p>
                 {selected.media_type === "movie" ? (
-                  <button
-                    className="button"
-                    onClick={() =>
-                      setFollowPayload({ targetType: "movie", tmdbId: detail.id })
-                    }
-                  >
-                    Follow
-                  </button>
+                  (() => {
+                    const existingMovieFollow = follows.find(
+                      (follow) => follow.target_type === "movie" && follow.tmdb_id === detail.id,
+                    );
+                    return (
+                      <button
+                        className="button"
+                        onClick={() => {
+                          setFollowPayload({ targetType: "movie", tmdbId: detail.id });
+                          setExistingFollow(existingMovieFollow);
+                        }}
+                      >
+                        {existingMovieFollow ? "Edit follow" : "Follow"}
+                      </button>
+                    );
+                  })()
                 ) : (
-                  <div className="button-row">
-                    <button
-                      className="button"
-                      onClick={() =>
-                        setFollowPayload({ targetType: "tv_full", tmdbId: detail.id })
-                      }
-                    >
-                      Follow full run
-                    </button>
-                    <button
-                      className="button secondary"
-                      onClick={() =>
-                        setFollowPayload({
-                          targetType: "tv_season",
-                          tmdbId: detail.id,
-                        })
-                      }
-                    >
-                      Follow season
-                    </button>
-                  </div>
+                  (() => {
+                    const existingFullFollow = follows.find(
+                      (follow) => follow.target_type === "tv_full" && follow.tmdb_id === detail.id,
+                    );
+                    return (
+                      <>
+                        <div className="button-row">
+                          <button
+                            className="button"
+                            onClick={() => {
+                              setFollowPayload({ targetType: "tv_full", tmdbId: detail.id });
+                              setExistingFollow(existingFullFollow);
+                            }}
+                          >
+                            {existingFullFollow ? "Edit follow" : "Follow full run"}
+                          </button>
+                          <button
+                            className="button secondary"
+                            onClick={() => {
+                              setFollowPayload({
+                                targetType: "tv_season",
+                                tmdbId: detail.id,
+                              });
+                              setExistingFollow(undefined);
+                            }}
+                          >
+                            Follow season
+                          </button>
+                        </div>
+                        <p className="muted">
+                          Full run: get notified when the show concludes (Ended/Canceled) and
+                          optionally when the next drop date appears or changes.
+                        </p>
+                        <p className="muted">
+                          Season: pick a season to track premiere date changes and when it becomes
+                          binge-ready.
+                        </p>
+                      </>
+                    );
+                  })()
                 )}
               </div>
             )}
@@ -132,10 +164,16 @@ export const SearchOverlay = ({ open, onClose, onFollowCreated }: SearchOverlayP
               <FollowModal
                 payload={followPayload}
                 detail={detail}
-                onClose={() => setFollowPayload(null)}
+                existingFollow={existingFollow}
+                existingFollows={follows}
+                onClose={() => {
+                  setFollowPayload(null);
+                  setExistingFollow(undefined);
+                }}
                 onSaved={() => {
                   onFollowCreated();
                   setFollowPayload(null);
+                  setExistingFollow(undefined);
                 }}
               />
             )}
