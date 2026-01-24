@@ -48,6 +48,7 @@ The build output goes to `frontend/dist`, which Flask serves automatically.
 docker build -t dropbinge .
 docker run -e DATABASE_URL=... -e JWT_SECRET=... -e TMDB_BEARER_TOKEN=... -p 10000:10000 dropbinge
 ```
+The Docker image includes the built React SPA, so no Node runtime is required in production.
 
 ## Render Example
 **Preferred: Docker deployment**
