@@ -161,7 +161,11 @@ def refresh_follow(conn, follow, prefs):
     events = []
     today = datetime.date.today()
 
+    date_event_types = {"date_set", "date_changed"}
+
     def emit(event_type, payload):
+        if event_type in date_event_types and not prefs.get("notify_date_changes", True):
+            return
         _insert_event(cursor, follow["user_id"], follow["id"], event_type, payload)
         _enqueue_notifications(cursor, follow["user_id"], follow["id"], event_type, payload, prefs)
         events.append(event_type)
