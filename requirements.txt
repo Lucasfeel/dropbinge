@@ -1,6 +1,4 @@
 requests
-aiohttp
-tenacity
 flask
 flask-cors
 gunicorn

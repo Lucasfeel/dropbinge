@@ -1,122 +1,58 @@
-from flask import Blueprint, jsonify, request, g
-import psycopg2
+from flask import Blueprint, jsonify, request
 
-from services.auth_service import (
-    authenticate_user,
-    create_access_token,
-    is_valid_email,
-    is_valid_password,
-    register_user,
-    change_password,
-)
-from utils.auth import AuthConfigError, _error_response, admin_required, login_required
+from database import get_db, get_cursor
+from services import auth_service
+from utils.auth import require_auth
 
-auth_bp = Blueprint('auth', __name__)
+auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
 
-@auth_bp.route('/api/auth/register', methods=['POST'])
+@auth_bp.post("/register")
 def register():
     data = request.get_json() or {}
-    email = data.get('email')
-    password = data.get('password')
-
+    email = (data.get("email") or "").strip().lower()
+    password = data.get("password") or ""
     if not email or not password:
-        return _error_response(400, 'INVALID_INPUT', '이메일과 비밀번호가 필요합니다.')
-    if not is_valid_password(password):
-        return _error_response(400, 'PASSWORD_TOO_SHORT', '비밀번호는 8자 이상이어야 합니다.')
-    if not is_valid_email(email):
-        return _error_response(400, 'INVALID_INPUT', '올바른 이메일 형식이 아닙니다.')
+        return jsonify({"error": "Email and password required."}), 400
 
-    try:
-        user, error = register_user(email, password)
-        if error:
-            return _error_response(409, 'EMAIL_ALREADY_EXISTS', error)
-        return jsonify({'success': True, 'user_id': user['id']}), 201
-    except psycopg2.Error:
-        return _error_response(500, 'INTERNAL_ERROR', '데이터베이스 오류가 발생했습니다.')
-    except AuthConfigError:
-        return _error_response(503, 'JWT_SECRET_MISSING', '서버 설정(JWT_SECRET)이 누락되었습니다.')
-    except Exception:
-        return _error_response(500, 'INTERNAL_ERROR', '서버 오류가 발생했습니다.')
+    db = get_db()
+    cursor = get_cursor(db)
+    cursor.execute("SELECT id FROM users WHERE email = %s;", (email,))
+    if cursor.fetchone():
+        return jsonify({"error": "Email already registered."}), 409
+
+    password_hash = auth_service.hash_password(password)
+    cursor.execute(
+        "INSERT INTO users (email, password_hash) VALUES (%s, %s) RETURNING id;",
+        (email, password_hash),
+    )
+    user_id = cursor.fetchone()["id"]
+    db.commit()
+    token = auth_service.generate_token(user_id, email)
+    return jsonify({"token": token, "user": {"id": user_id, "email": email}})
 
 
-@auth_bp.route('/api/auth/login', methods=['POST'])
+@auth_bp.post("/login")
 def login():
     data = request.get_json() or {}
-    email = data.get('email')
-    password = data.get('password')
-
+    email = (data.get("email") or "").strip().lower()
+    password = data.get("password") or ""
     if not email or not password:
-        return _error_response(400, 'INVALID_INPUT', '이메일과 비밀번호가 필요합니다.')
+        return jsonify({"error": "Email and password required."}), 400
 
-    try:
-        user = authenticate_user(email, password)
-        if not user:
-            return _error_response(401, 'INVALID_CREDENTIALS', '이메일 또는 비밀번호가 올바르지 않습니다.')
-
-        token, expires_in = create_access_token(user)
-        return (
-            jsonify(
-                {
-                    'access_token': token,
-                    'token_type': 'bearer',
-                    'expires_in': expires_in,
-                    'user': user,
-                }
-            ),
-            200,
-        )
-    except psycopg2.Error:
-        return _error_response(500, 'INTERNAL_ERROR', '데이터베이스 오류가 발생했습니다.')
-    except AuthConfigError:
-        return _error_response(503, 'JWT_SECRET_MISSING', '서버 설정(JWT_SECRET)이 누락되었습니다.')
-    except Exception:
-        return _error_response(500, 'INTERNAL_ERROR', '서버 오류가 발생했습니다.')
+    db = get_db()
+    cursor = get_cursor(db)
+    cursor.execute("SELECT id, email, password_hash FROM users WHERE email = %s;", (email,))
+    user = cursor.fetchone()
+    if not user or not user["password_hash"]:
+        return jsonify({"error": "Invalid credentials."}), 401
+    if not auth_service.verify_password(password, user["password_hash"]):
+        return jsonify({"error": "Invalid credentials."}), 401
+    token = auth_service.generate_token(user["id"], user["email"])
+    return jsonify({"token": token, "user": {"id": user["id"], "email": user["email"]}})
 
 
-@auth_bp.route('/api/auth/logout', methods=['POST'])
-def logout():
-    return jsonify({'success': True}), 200
-
-
-@auth_bp.route('/api/auth/me', methods=['GET'])
-@login_required
-def me():
-    return jsonify({'success': True, 'user': g.current_user}), 200
-
-
-@auth_bp.route('/api/auth/change-password', methods=['POST'])
-@login_required
-def change_password_route():
-    data = request.get_json() or {}
-    current_password = data.get('current_password')
-    new_password = data.get('new_password')
-
-    if not current_password or not new_password:
-        return _error_response(400, 'INVALID_INPUT', '현재 비밀번호와 새 비밀번호가 필요합니다.')
-
-    if not is_valid_password(new_password):
-        return _error_response(400, 'WEAK_PASSWORD', '비밀번호는 8자 이상이어야 합니다.')
-
-    try:
-        ok, code, message = change_password(
-            g.current_user.get('id'), current_password, new_password
-        )
-        if not ok:
-            status = 403 if code == 'INVALID_PASSWORD' else 401 if code == 'UNAUTHORIZED' else 400
-            return _error_response(status, code or 'CHANGE_PASSWORD_FAILED', message or '비밀번호 변경에 실패했습니다.')
-
-        return jsonify({'ok': True}), 200
-    except psycopg2.Error:
-        return _error_response(500, 'INTERNAL_ERROR', '데이터베이스 오류가 발생했습니다.')
-    except AuthConfigError:
-        return _error_response(503, 'JWT_SECRET_MISSING', '서버 설정(JWT_SECRET)이 누락되었습니다.')
-    except Exception:
-        return _error_response(500, 'INTERNAL_ERROR', '서버 오류가 발생했습니다.')
-
-
-@auth_bp.route('/api/auth/admin/ping', methods=['GET'])
-@login_required
-@admin_required
-def admin_ping():
-    return jsonify({'success': True, 'message': 'admin ok'}), 200
+@auth_bp.get("/me")
+@require_auth
+def me(payload):
+    return jsonify({"user": {"id": int(payload["sub"]), "email": payload["email"]}})

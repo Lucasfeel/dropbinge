@@ -1,94 +1,104 @@
-"""Database bootstrap script with readiness checks and idempotency."""
-
-import sys
-import time
-
-import psycopg2
-
-from database import create_standalone_connection, setup_database_standalone
-from dotenv import load_dotenv
-from services.auth_service import bootstrap_admin_from_env
+from database import create_standalone_connection, get_cursor
 
 
-def connect_with_retries(max_attempts: int = 10):
-    """Connect to the database with basic retry/backoff for cold starts."""
+def init_db():
+    conn = create_standalone_connection()
+    conn.autocommit = True
+    cursor = get_cursor(conn)
 
-    for attempt in range(1, max_attempts + 1):
-        try:
-            print(
-                f"[CHECK] Connecting to database (attempt {attempt}/{max_attempts})..."
-            )
-            return create_standalone_connection()
-        except psycopg2.OperationalError as exc:  # Retry only on connectivity issues
-            if attempt == max_attempts:
-                raise
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        );
+        """
+    )
 
-            sleep_seconds = attempt
-            print(
-                f"[RETRY] Database not ready: {exc}. Retrying in {sleep_seconds}s..."
-            )
-            time.sleep(sleep_seconds)
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS follows (
+            id SERIAL PRIMARY KEY,
+            user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            target_type TEXT NOT NULL,
+            tmdb_id INT NOT NULL,
+            season_number INT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            UNIQUE(user_id, target_type, tmdb_id, season_number)
+        );
+        """
+    )
 
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS follow_prefs (
+            follow_id INT PRIMARY KEY REFERENCES follows(id) ON DELETE CASCADE,
+            notify_date_changes BOOLEAN NOT NULL DEFAULT TRUE,
+            notify_status_milestones BOOLEAN NOT NULL DEFAULT FALSE,
+            notify_season_binge_ready BOOLEAN NOT NULL DEFAULT TRUE,
+            notify_episode_drops BOOLEAN NOT NULL DEFAULT FALSE,
+            notify_full_run_concluded BOOLEAN NOT NULL DEFAULT TRUE,
+            channel_email BOOLEAN NOT NULL DEFAULT TRUE,
+            channel_whatsapp BOOLEAN NOT NULL DEFAULT FALSE,
+            frequency TEXT NOT NULL DEFAULT 'important_only',
+            updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+        );
+        """
+    )
 
-def database_already_initialized() -> bool:
-    """Determine whether the schema already exists by checking the contents table."""
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tmdb_cache (
+            media_type TEXT NOT NULL,
+            tmdb_id INT NOT NULL,
+            season_number INT NOT NULL DEFAULT -1,
+            payload JSONB NOT NULL,
+            status_raw TEXT NULL,
+            release_date DATE NULL,
+            first_air_date DATE NULL,
+            last_air_date DATE NULL,
+            next_air_date DATE NULL,
+            season_air_date DATE NULL,
+            season_last_episode_air_date DATE NULL,
+            updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (media_type, tmdb_id, season_number)
+        );
+        """
+    )
 
-    conn = None
-    cursor = None
-    try:
-        conn = connect_with_retries()
-        cursor = conn.cursor()
-        cursor.execute("SELECT to_regclass('public.contents') as t;")
-        row = cursor.fetchone()
-        return bool(row and row[0])
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS change_events (
+            id SERIAL PRIMARY KEY,
+            user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            follow_id INT NOT NULL REFERENCES follows(id) ON DELETE CASCADE,
+            event_type TEXT NOT NULL,
+            event_payload JSONB NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        );
+        """
+    )
 
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS notification_outbox (
+            id SERIAL PRIMARY KEY,
+            user_id INT NOT NULL,
+            follow_id INT NOT NULL,
+            channel TEXT NOT NULL,
+            payload JSONB NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            sent_at TIMESTAMP NULL
+        );
+        """
+    )
 
-def main():
-    print("==========================================")
-    print("  DATABASE INITIALIZATION SCRIPT STARTED")
-    print("==========================================")
-
-    try:
-        load_dotenv()
-
-        already_initialized = database_already_initialized()
-        if already_initialized:
-            print("[INFO] Database already initialized. Running idempotent setup to apply latest schema...")
-        else:
-            print("[INFO] Database not initialized. Running setup...")
-        setup_database_standalone()
-        try:
-            ran, admin_id = bootstrap_admin_from_env()
-            if ran:
-                print(f"[INFO] Admin bootstrap applied for ADMIN_ID={admin_id}")
-            else:
-                print("[INFO] ADMIN_ID/ADMIN_PASSWORD not set. Skipping admin bootstrap.")
-        except ValueError as exc:
-            print(
-                f"[FATAL] Admin bootstrap misconfigured: {exc}",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-        print("\n[SUCCESS] Database initialization complete.")
-        print("==========================================")
-        print("  DATABASE INITIALIZATION SCRIPT FINISHED")
-        print("==========================================")
-        sys.exit(0)
-    except Exception as e:
-        print(
-            f"\n[FATAL] An error occurred during database initialization: {e}",
-            file=sys.stderr,
-        )
-        print("==========================================")
-        print("  DATABASE INITIALIZATION SCRIPT FAILED")
-        print("==========================================")
-        sys.exit(1)
+    cursor.close()
+    conn.close()
 
 
 if __name__ == "__main__":
-    main()
+    init_db()

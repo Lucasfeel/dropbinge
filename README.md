@@ -1,28 +1,55 @@
-# ending-project-endingsignal
+# DropBinge (v0.9 MVP)
 
-## Database schema notes
+DropBinge tracks release date “drops,” status changes, and completion signals for movies and TV. It emphasizes TBD (missing dates) and supports both **TV seasons** and **full series run** tracking.
 
-- `daily_crawler_reports` uses an `id SERIAL PRIMARY KEY` alongside `crawler_name`, `status`,
-  `report_data JSONB`, and `created_at TIMESTAMP DEFAULT NOW()`. Either `SERIAL` or
-  `BIGSERIAL` are acceptable for deployments; the current schema uses `SERIAL` to match the
-  application setup in `database.py`.
+## Requirements
+- Python 3.10+
+- Postgres
+- Node 18+ (for frontend dev/build)
 
-## Production auth config
+## Environment Variables
+- `DATABASE_URL` (preferred) **or** `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`
+- `JWT_SECRET`
+- `TMDB_BEARER_TOKEN` (preferred) or `TMDB_API_KEY`
+- `CORS_ALLOW_ORIGINS` (comma-separated or JSON list)
 
-- `JWT_SECRET` is required in production-like environments. The server will refuse to issue or
-  validate tokens if it is missing.
-- `JWT_ACCESS_TOKEN_EXP_MINUTES` controls access token lifetime. The default is 10080
-  (7 days) if unset.
-- Generate a strong secret with:
-
-  ```bash
-  python -c "import secrets; print(secrets.token_hex(32))"
-  ```
-
-## Testing
-
+## Backend Setup
 ```bash
 pip install -r requirements.txt
-pip install -r requirements-dev.txt
-PYTHONPATH=. pytest -q
+python init_db.py
+python app.py
+```
+
+For production:
+```bash
+gunicorn app:app
+```
+
+## Frontend Setup (Vite)
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The Vite dev server proxies `/api` requests to the Flask backend (see `frontend/vite.config.ts`).
+
+## Build for Production
+```bash
+cd frontend
+npm install
+npm run build
+```
+
+The build output goes to `frontend/dist`, which Flask serves automatically.
+
+### Render Example
+**Build Command**
+```bash
+pip install -r requirements.txt && python init_db.py && cd frontend && npm install && npm run build
+```
+
+**Start Command**
+```bash
+gunicorn app:app
 ```
