@@ -13,6 +13,8 @@ DropBinge tracks release date “drops,” status changes, and completion signal
 - `TMDB_BEARER_TOKEN` (preferred) or `TMDB_API_KEY`
 - `CORS_ALLOW_ORIGINS` (comma-separated or JSON list)
 
+TMDB `/api/tmdb` endpoints are server-side cached with TTLs and respect upstream 429 rate limiting responses.
+
 ## Backend Setup
 ```bash
 pip install -r requirements.txt
