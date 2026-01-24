@@ -1,3 +1,5 @@
+import psycopg2
+
 from flask import Blueprint, jsonify, request
 
 from database import get_db, get_cursor
@@ -16,6 +18,19 @@ PREF_FIELDS = {
     "frequency",
 }
 
+BOOL_PREF_FIELDS = {
+    "notify_date_changes",
+    "notify_status_milestones",
+    "notify_season_binge_ready",
+    "notify_episode_drops",
+    "notify_full_run_concluded",
+    "channel_email",
+    "channel_whatsapp",
+}
+
+ALLOWED_TARGET_TYPES = {"movie", "tv_full", "tv_season"}
+ALLOWED_FREQUENCIES = {"important_only", "all_updates"}
+
 DEFAULT_PREFS = {
     "notify_date_changes": True,
     "notify_status_milestones": False,
@@ -27,14 +42,30 @@ DEFAULT_PREFS = {
     "frequency": "important_only",
 }
 
+def _validate_bool(value, field_name):
+    if not isinstance(value, bool):
+        return jsonify({"error": "invalid_boolean", "field": field_name}), 400
+    return None
 
-def _clean_prefs(raw):
-    prefs = DEFAULT_PREFS.copy()
-    if isinstance(raw, dict):
-        for key in PREF_FIELDS:
-            if key in raw:
-                prefs[key] = raw[key]
-    return prefs
+
+def _validate_prefs(raw, partial=False):
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        return None, (jsonify({"error": "invalid_prefs"}), 400)
+    prefs = {} if partial else DEFAULT_PREFS.copy()
+    for key in PREF_FIELDS:
+        if key not in raw:
+            continue
+        value = raw[key]
+        if key in BOOL_PREF_FIELDS:
+            error = _validate_bool(value, key)
+            if error:
+                return None, error
+        if key == "frequency" and value not in ALLOWED_FREQUENCIES:
+            return None, (jsonify({"error": "invalid_frequency"}), 400)
+        prefs[key] = value
+    return prefs, None
 
 
 @follows_bp.get("")
@@ -94,29 +125,46 @@ def create_follow(payload):
     target_type = data.get("target_type")
     tmdb_id = data.get("tmdb_id")
     season_number = data.get("season_number")
-    if target_type not in {"movie", "tv_full", "tv_season"}:
-        return jsonify({"error": "Invalid target_type"}), 400
+    if target_type not in ALLOWED_TARGET_TYPES:
+        return jsonify({"error": "invalid_target_type"}), 400
     if tmdb_id is None:
         return jsonify({"error": "tmdb_id required"}), 400
     if target_type == "tv_season" and season_number is None:
         return jsonify({"error": "season_number required"}), 400
+    if target_type == "tv_season":
+        if not isinstance(season_number, int) or season_number < 0:
+            return jsonify({"error": "invalid_season_number"}), 400
 
     if target_type != "tv_season":
         season_number = None
 
-    prefs = _clean_prefs(data.get("prefs") or {})
+    prefs, error = _validate_prefs(data.get("prefs"), partial=False)
+    if error:
+        return error
 
     db = get_db()
     cursor = get_cursor(db)
-    cursor.execute(
-        """
-        INSERT INTO follows (user_id, target_type, tmdb_id, season_number)
-        VALUES (%s, %s, %s, %s)
-        RETURNING id;
-        """,
-        (user_id, target_type, tmdb_id, season_number),
-    )
-    follow_id = cursor.fetchone()["id"]
+    try:
+        cursor.execute(
+            """
+            INSERT INTO follows (user_id, target_type, tmdb_id, season_number)
+            VALUES (%s, %s, %s, %s)
+            RETURNING id;
+            """,
+            (user_id, target_type, tmdb_id, season_number),
+        )
+        follow_id = cursor.fetchone()["id"]
+    except psycopg2.errors.UniqueViolation:
+        db.rollback()
+        return (
+            jsonify(
+                {
+                    "error": "follow_already_exists",
+                    "message": "Follow already exists for this target.",
+                }
+            ),
+            409,
+        )
     cursor.execute(
         """
         INSERT INTO follow_prefs (
@@ -137,7 +185,10 @@ def create_follow(payload):
         ),
     )
     db.commit()
-    return jsonify({"id": follow_id}), 201
+    response = {"id": follow_id}
+    if prefs.get("channel_whatsapp"):
+        response["warning"] = "whatsapp_delivery_not_implemented"
+    return jsonify(response), 201
 
 
 @follows_bp.patch("/<int:follow_id>")
@@ -145,7 +196,9 @@ def create_follow(payload):
 def update_follow(payload, follow_id):
     user_id = int(payload["sub"])
     data = request.get_json() or {}
-    updates = {key: data.get(key) for key in PREF_FIELDS if key in data}
+    updates, error = _validate_prefs(data, partial=True)
+    if error:
+        return error
     if not updates:
         return jsonify({"error": "No updates provided"}), 400
 
@@ -161,7 +214,7 @@ def update_follow(payload, follow_id):
         UPDATE follow_prefs
         SET {set_clauses}, updated_at = NOW()
         WHERE follow_id = %s AND follow_id IN (SELECT id FROM follows WHERE user_id = %s)
-        RETURNING follow_id;
+        RETURNING follow_id, channel_whatsapp;
         """,
         values,
     )
@@ -169,7 +222,10 @@ def update_follow(payload, follow_id):
     if not row:
         return jsonify({"error": "Follow not found"}), 404
     db.commit()
-    return jsonify({"id": row["follow_id"]})
+    response = {"id": row["follow_id"]}
+    if row.get("channel_whatsapp"):
+        response["warning"] = "whatsapp_delivery_not_implemented"
+    return jsonify(response)
 
 
 @follows_bp.delete("/<int:follow_id>")
