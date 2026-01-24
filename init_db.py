@@ -52,7 +52,7 @@ def init_db():
         """
         CREATE TABLE IF NOT EXISTS tmdb_cache (
             media_type TEXT NOT NULL,
-            tmdb_id INT NOT NULL,
+            tmdb_id BIGINT NOT NULL,
             season_number INT NOT NULL DEFAULT -1,
             payload JSONB NOT NULL,
             status_raw TEXT NULL,
@@ -62,11 +62,28 @@ def init_db():
             next_air_date DATE NULL,
             season_air_date DATE NULL,
             season_last_episode_air_date DATE NULL,
+            fetched_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            expires_at TIMESTAMP NULL,
             updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
             PRIMARY KEY (media_type, tmdb_id, season_number)
         );
         """
     )
+
+    try:
+        cursor.execute(
+            """
+            ALTER TABLE tmdb_cache
+            ALTER COLUMN tmdb_id TYPE BIGINT USING tmdb_id::BIGINT;
+            """
+        )
+    except Exception:
+        pass
+
+    cursor.execute(
+        "ALTER TABLE tmdb_cache ADD COLUMN IF NOT EXISTS fetched_at TIMESTAMP NOT NULL DEFAULT NOW();"
+    )
+    cursor.execute("ALTER TABLE tmdb_cache ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP NULL;")
 
     cursor.execute(
         """
