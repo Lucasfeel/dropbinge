@@ -43,8 +43,17 @@ npm run build
 
 The build output goes to `frontend/dist`, which Flask serves automatically.
 
-### Render Example
-**Build Command**
+## Production (Docker)
+```bash
+docker build -t dropbinge .
+docker run -e DATABASE_URL=... -e JWT_SECRET=... -e TMDB_BEARER_TOKEN=... -p 10000:10000 dropbinge
+```
+
+## Render Example
+**Preferred: Docker deployment**
+- Use the Dockerfile in this repo for build and start; it serves the built frontend via Flask.
+
+**If not using Docker (Build/Start Commands)**
 ```bash
 pip install -r requirements.txt && python init_db.py && cd frontend && npm install && npm run build
 ```

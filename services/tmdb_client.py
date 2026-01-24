@@ -23,7 +23,7 @@ def _get_auth_params():
 def _get(path, params=None):
     headers, base_params = _get_auth_params()
     merged_params = {**base_params, **(params or {})}
-    response = requests.get(f"{TMDB_BASE_URL}{path}", headers=headers, params=merged_params, timeout=20)
+    response = requests.get(f"{TMDB_BASE_URL}{path}", headers=headers, params=merged_params, timeout=10)
     response.raise_for_status()
     return response.json()
 
