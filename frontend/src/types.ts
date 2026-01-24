@@ -32,3 +32,44 @@ export type FollowPayload = {
   tmdbId: number;
   seasonNumber?: number;
 };
+
+export type ActivityEvent = {
+  id: number;
+  created_at: string;
+  follow_id: number;
+  target_type: "movie" | "tv_season" | "tv_full";
+  tmdb_id: number;
+  season_number: number | null;
+  title: string | null;
+  event_type: "date_set" | "date_changed" | "status_milestone" | "season_binge_ready" | "full_run_concluded";
+  summary: string;
+  event_payload: Record<string, unknown>;
+};
+
+export type ActivityOutboxItem = {
+  id: number;
+  created_at: string;
+  sent_at: string | null;
+  follow_id: number;
+  target_type: "movie" | "tv_season" | "tv_full";
+  tmdb_id: number;
+  season_number: number | null;
+  title: string | null;
+  channel: "email" | "whatsapp";
+  status: "pending" | "sent" | "failed";
+  summary: string;
+  payload: Record<string, unknown>;
+};
+
+export type ActivityResponse = {
+  recent_events: ActivityEvent[];
+  outbox: ActivityOutboxItem[];
+  meta: {
+    as_of: string;
+    counts: {
+      recent_events: number;
+      outbox: number;
+      outbox_pending: number;
+    };
+  };
+};
