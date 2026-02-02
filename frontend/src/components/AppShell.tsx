@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Outlet } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
 
 import { BottomNav } from "./BottomNav";
 import { SearchOverlay } from "./SearchOverlay";
@@ -8,9 +8,13 @@ import { TopHeader } from "./TopHeader";
 export const AppShell = () => {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const location = useLocation();
+  const isNarrow = ["/movie", "/tv", "/series"].some((route) =>
+    location.pathname.startsWith(route),
+  );
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${isNarrow ? " layout-narrow" : ""}`}>
       <TopHeader
         query={query}
         onQueryChange={(value) => {

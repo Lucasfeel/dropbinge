@@ -1,13 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 
 import { apiFetch } from "../api";
+import { PosterGridCard } from "./PosterGridCard";
 import { addRecentSearch } from "../utils/searchHistory";
-
-const IMG_BASE = "https://image.tmdb.org/t/p/w185";
-
-const getPosterUrl = (path: string | null | undefined) =>
-  path ? `${IMG_BASE}${path}` : null;
+import type { TitleSummary } from "../types";
 
 type SearchOverlayProps = {
   open: boolean;
@@ -17,7 +13,6 @@ type SearchOverlayProps = {
 };
 
 export const SearchOverlay = ({ open, query, onQueryChange, onClose }: SearchOverlayProps) => {
-  const navigate = useNavigate();
   const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -52,8 +47,20 @@ export const SearchOverlay = ({ open, query, onQueryChange, onClose }: SearchOve
     return () => window.removeEventListener("keydown", handler);
   }, [open, onClose]);
 
-  const displayResults = useMemo(
-    () => results.filter((result) => result.media_type === "movie" || result.media_type === "tv"),
+  const displayResults = useMemo<TitleSummary[]>(
+    () =>
+      results
+        .filter((result) => result.media_type === "movie" || result.media_type === "tv")
+        .map((result) => ({
+          id: result.id,
+          media_type: result.media_type,
+          title: result.title || result.name || `TMDB ${result.id}`,
+          poster_path: result.poster_path || null,
+          backdrop_path: null,
+          date: result.release_date || result.first_air_date || null,
+          vote_average: result.vote_average ?? null,
+          vote_count: result.vote_count ?? null,
+        })),
     [results],
   );
 
@@ -80,42 +87,28 @@ export const SearchOverlay = ({ open, query, onQueryChange, onClose }: SearchOve
         {!loading && displayResults.length === 0 && query.trim() && (
           <div className="muted">No results yet.</div>
         )}
-        <div className="search-results">
+        <div className="search-results poster-grid">
           {displayResults.map((result) => {
-            const title = result.title || result.name;
-            const date = result.release_date || result.first_air_date || null;
-            const posterUrl = getPosterUrl(result.poster_path);
+            const mediaType = result.media_type === "tv" ? "tv" : "movie";
             return (
-              <button
+              <PosterGridCard
                 key={`${result.media_type}-${result.id}`}
-                className="search-result"
-                onClick={() => {
+                item={result}
+                mediaType={mediaType}
+                showAction={false}
+                onSelect={() => {
                   addRecentSearch({
                     key: `${result.media_type}:${result.id}`,
                     mediaType: result.media_type,
                     tmdbId: result.id,
-                    title: title || `TMDB ${result.id}`,
+                    title: result.title,
                     posterPath: result.poster_path || null,
-                    meta: { date },
+                    meta: { date: result.date },
                     addedAt: Date.now(),
                   });
-                  navigate(`/title/${result.media_type}/${result.id}`);
                   onClose();
                 }}
-              >
-                <div className="result-poster">
-                  {posterUrl ? (
-                    <img src={posterUrl} alt={title} />
-                  ) : (
-                    <div className="poster-fallback" />
-                  )}
-                </div>
-                <div className="result-meta">
-                  <div className="result-title">{title}</div>
-                  <div className="muted">{date || "TBD"}</div>
-                </div>
-                <span className="result-tag">{result.media_type === "movie" ? "Movie" : "TV"}</span>
-              </button>
+              />
             );
           })}
         </div>

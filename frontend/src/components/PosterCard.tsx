@@ -14,29 +14,41 @@ type PosterCardProps = {
 };
 
 export const PosterCard = ({ title, subtitle, posterPath, to, action }: PosterCardProps) => {
-  const content = (
-    <>
-      <div className="poster-wrapper">
-        {getPosterUrl(posterPath) ? (
-          <img src={getPosterUrl(posterPath) as string} alt={title} />
+  const posterUrl = getPosterUrl(posterPath);
+  return (
+    <div className="poster-tile">
+      <div className="poster-tile-media">
+        {to ? (
+          <Link to={to} className="poster-tile-link" aria-label={title}>
+            {posterUrl ? (
+              <img src={posterUrl} alt={title} />
+            ) : (
+              <div className="poster-fallback" />
+            )}
+          </Link>
         ) : (
-          <div className="poster-fallback" />
+          <div className="poster-tile-link" aria-label={title}>
+            {posterUrl ? <img src={posterUrl} alt={title} /> : <div className="poster-fallback" />}
+          </div>
         )}
       </div>
-      <div className="poster-info">
-        <div className="poster-title">{title}</div>
-        {subtitle && <div className="muted">{subtitle}</div>}
-        {action && <div className="poster-action">{action}</div>}
+      <div className="poster-tile-footer">
+        <div className="poster-tile-text">
+          {to ? (
+            <Link to={to} className="poster-tile-title">
+              {title}
+            </Link>
+          ) : (
+            <div className="poster-tile-title">{title}</div>
+          )}
+          {subtitle && (
+            <div className="poster-meta">
+              <span>{subtitle}</span>
+            </div>
+          )}
+          {action && <div className="poster-tile-extra">{action}</div>}
+        </div>
       </div>
-    </>
+    </div>
   );
-
-  if (to) {
-    return (
-      <Link className="poster-card" to={to}>
-        {content}
-      </Link>
-    );
-  }
-  return <div className="poster-card">{content}</div>;
 };

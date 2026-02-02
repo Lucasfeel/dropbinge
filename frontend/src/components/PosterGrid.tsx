@@ -17,6 +17,7 @@ export const PosterGrid = ({ items, mediaType, onToggleFollow, getFollowState }:
         mediaType={mediaType}
         isFollowed={getFollowState(item)}
         onToggleFollow={onToggleFollow}
+        showAction
       />
     ))}
   </div>
