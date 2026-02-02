@@ -28,6 +28,12 @@ a {
   flex: 1;
 }
 
+.container {
+  width: min(480px, 100%);
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
 .page {
   padding: 16px;
   padding-bottom: calc(96px + env(safe-area-inset-bottom));
@@ -41,15 +47,22 @@ a {
   z-index: 20;
   background: rgba(10, 14, 22, 0.85);
   backdrop-filter: blur(12px);
-  padding: 16px;
+  padding: 12px 0;
+}
+
+.top-header-inner {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
-.logo {
-  font-weight: 700;
-  font-size: 18px;
+.brand-logo {
+  display: inline-flex;
+  align-items: center;
+}
+
+.brand-logo img {
+  height: 28px;
 }
 
 .search-bar {
@@ -70,13 +83,17 @@ a {
   bottom: 0;
   left: 0;
   right: 0;
-  padding: 10px 12px calc(12px + env(safe-area-inset-bottom));
+  padding: 10px 0 calc(12px + env(safe-area-inset-bottom));
   background: rgba(12, 16, 26, 0.9);
   backdrop-filter: blur(16px);
-  display: flex;
-  justify-content: space-around;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
   z-index: 30;
+}
+
+.bottom-nav-inner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .bottom-nav a {
@@ -491,14 +508,4 @@ a {
   display: flex;
   gap: 12px;
   align-items: center;
-}
-
-@media (min-width: 768px) {
-  .page {
-    padding-left: 0;
-    padding-right: 0;
-  }
-  .top-header {
-    justify-content: center;
-  }
 }

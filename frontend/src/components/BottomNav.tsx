@@ -16,16 +16,18 @@ const navItems = [
 
 export const BottomNav = () => (
   <nav className="bottom-nav">
-    {navItems.map(({ to, label, Icon }) => (
-      <NavLink
-        key={to}
-        to={to}
-        end={to === "/"}
-        className={({ isActive }) => (isActive ? "active" : "")}
-      >
-        <Icon className="nav-icon" aria-hidden="true" />
-        <span>{label}</span>
-      </NavLink>
-    ))}
+    <div className="bottom-nav-inner container">
+      {navItems.map(({ to, label, Icon }) => (
+        <NavLink
+          key={to}
+          to={to}
+          end={to === "/"}
+          className={({ isActive }) => (isActive ? "active" : "")}
+        >
+          <Icon className="nav-icon" aria-hidden="true" />
+          <span>{label}</span>
+        </NavLink>
+      ))}
+    </div>
   </nav>
 );
