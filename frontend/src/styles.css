@@ -115,6 +115,28 @@ a {
   height: 24px;
 }
 
+.home-page.page {
+  padding: 17px;
+  padding-bottom: calc(92px + env(safe-area-inset-bottom));
+}
+
+.home-page .section-header {
+  margin: 28px 0 17px;
+}
+
+.home-page .poster-grid {
+  gap: 20px;
+}
+
+.home-page .horizontal-rail-track {
+  gap: 16px;
+}
+
+.horizontal-rail-track .poster-tile {
+  width: 170px;
+  flex: 0 0 auto;
+}
+
 .section-header {
   display: flex;
   align-items: flex-end;
