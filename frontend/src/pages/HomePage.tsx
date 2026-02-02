@@ -169,9 +169,16 @@ export const HomePage = () => {
       <SectionHeader title="TBD updates" subtitle="Placeholder until backend feeds arrive." />
       <HorizontalRail>
         {[1, 2, 3].map((index) => (
-          <div key={index} className="tbd-card">
-            <div className="tbd-bar" />
-            <div className="muted">Coming soon</div>
+          <div key={index} className="poster-tile poster-skeleton">
+            <div className="poster-tile-media">
+              <div className="skeleton-box" />
+            </div>
+            <div className="poster-tile-footer">
+              <div className="poster-tile-text">
+                <div className="skeleton-line" />
+                <div className="skeleton-line short" />
+              </div>
+            </div>
           </div>
         ))}
       </HorizontalRail>

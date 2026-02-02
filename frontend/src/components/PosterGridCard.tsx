@@ -10,8 +10,10 @@ const getPosterUrl = (path: string | null | undefined) => (path ? `${IMG_BASE}${
 type PosterGridCardProps = {
   item: TitleSummary;
   mediaType: "movie" | "tv";
-  isFollowed: boolean;
-  onToggleFollow: (item: TitleSummary) => void;
+  isFollowed?: boolean;
+  onToggleFollow?: (item: TitleSummary) => void;
+  onSelect?: (item: TitleSummary) => void;
+  showAction?: boolean;
 };
 
 const formatMetaDate = (date: string | null) => {
@@ -29,22 +31,34 @@ export const PosterGridCard = ({
   mediaType,
   isFollowed,
   onToggleFollow,
+  onSelect,
+  showAction = true,
 }: PosterGridCardProps) => {
   const posterUrl = getPosterUrl(item.poster_path);
   const rating = formatRating(item.vote_average);
   const metaDate = formatMetaDate(item.date);
   const link = `/title/${mediaType}/${item.id}`;
+  const actionEnabled = showAction && Boolean(onToggleFollow);
+  const followed = Boolean(isFollowed);
 
   const handleToggle = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    onToggleFollow(item);
+    if (onToggleFollow) {
+      onToggleFollow(item);
+    }
+  };
+
+  const handleSelect = () => {
+    if (onSelect) {
+      onSelect(item);
+    }
   };
 
   return (
     <div className="poster-tile">
       <div className="poster-tile-media">
-        <Link to={link} className="poster-tile-link" aria-label={item.title}>
+        <Link to={link} className="poster-tile-link" aria-label={item.title} onClick={handleSelect}>
           {posterUrl ? (
             <img src={posterUrl} alt={item.title} loading="lazy" />
           ) : (
@@ -54,7 +68,7 @@ export const PosterGridCard = ({
       </div>
       <div className="poster-tile-footer">
         <div className="poster-tile-text">
-          <Link to={link} className="poster-tile-title">
+          <Link to={link} className="poster-tile-title" onClick={handleSelect}>
             {item.title}
           </Link>
           <div className="poster-meta">
@@ -62,14 +76,16 @@ export const PosterGridCard = ({
             {rating && <span>{rating}</span>}
           </div>
         </div>
-        <button
-          type="button"
-          className={`tile-action ${isFollowed ? "active" : ""}`}
-          onClick={handleToggle}
-          aria-label={isFollowed ? "Unfollow" : "Follow"}
-        >
-          {isFollowed ? "✓" : "+"}
-        </button>
+        {actionEnabled ? (
+          <button
+            type="button"
+            className={`tile-action ${followed ? "active" : ""}`}
+            onClick={handleToggle}
+            aria-label={followed ? "Unfollow" : "Follow"}
+          >
+            {followed ? "✓" : "+"}
+          </button>
+        ) : null}
       </div>
     </div>
   );
