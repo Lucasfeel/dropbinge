@@ -19,9 +19,14 @@ a {
 }
 
 .app-shell {
+  --container-max-width: 1100px;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+}
+
+.app-shell.layout-narrow {
+  --container-max-width: 980px;
 }
 
 .main-content {
@@ -29,7 +34,7 @@ a {
 }
 
 .container {
-  width: min(1100px, 100%);
+  width: min(var(--container-max-width), 100%);
   margin: 0 auto;
   padding: 0 12px;
 }
@@ -37,7 +42,7 @@ a {
 .page {
   padding: 12px;
   padding-bottom: calc(96px + env(safe-area-inset-bottom));
-  max-width: 1100px;
+  max-width: var(--container-max-width);
   margin: 0 auto;
 }
 
@@ -496,10 +501,17 @@ a {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-@media (min-width: 900px) {
+@media (min-width: 768px) {
   .poster-grid {
     gap: 14px;
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1200px) {
+  .poster-grid {
+    gap: 14px;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 }
 
