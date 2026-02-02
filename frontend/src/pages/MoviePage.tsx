@@ -119,7 +119,7 @@ export const MoviePage = () => {
   const sentinelRef = useInfiniteScroll({ onLoadMore: loadMore, hasMore, loading });
 
   return (
-    <div className="page">
+    <div className="page movie-page">
       <div className="page-hero">
         <SectionHeader title="Movies" subtitle="Track upcoming films and release changes." />
       </div>

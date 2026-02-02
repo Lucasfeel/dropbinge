@@ -119,7 +119,7 @@ export const TvPage = () => {
   const sentinelRef = useInfiniteScroll({ onLoadMore: loadMore, hasMore, loading });
 
   return (
-    <div className="page">
+    <div className="page tv-page">
       <div className="page-hero">
         <SectionHeader title="TV" subtitle="Track upcoming seasons and air dates." />
       </div>

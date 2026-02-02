@@ -115,7 +115,7 @@ export const SeriesPage = () => {
   const sentinelRef = useInfiniteScroll({ onLoadMore: loadMore, hasMore, loading });
 
   return (
-    <div className="page">
+    <div className="page series-page">
       <div className="page-hero">
         <SectionHeader
           title="Series"
