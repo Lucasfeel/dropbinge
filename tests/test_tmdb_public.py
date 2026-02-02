@@ -2,7 +2,11 @@ from services import tmdb_client
 
 
 def test_tmdb_search_public(client, monkeypatch):
-    monkeypatch.setattr(tmdb_client, "search_multi", lambda query: {"results": [{"id": 1}]})
+    monkeypatch.setattr(
+        tmdb_client,
+        "search_multi",
+        lambda query, page=1, language=None: {"results": [{"id": 1}]},
+    )
     response = client.get("/api/tmdb/search?q=matrix")
     assert response.status_code == 200
     assert response.get_json() == {"results": [{"id": 1}]}

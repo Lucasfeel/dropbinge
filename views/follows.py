@@ -3,6 +3,7 @@ import psycopg2
 from flask import Blueprint, jsonify, request
 
 from database import get_db, get_cursor
+from services.refresh_service import refresh_follow
 from utils.auth import require_auth
 
 follows_bp = Blueprint("follows", __name__, url_prefix="/api/my/follows")
@@ -185,8 +186,24 @@ def create_follow(payload):
         ),
     )
     db.commit()
-    response = {"id": follow_id}
-    if prefs.get("channel_whatsapp"):
+    hydrated = False
+    try:
+        follow_row = {
+            "id": follow_id,
+            "user_id": user_id,
+            "target_type": target_type,
+            "tmdb_id": tmdb_id,
+            "season_number": season_number,
+        }
+        refresh_follow(db, follow_row, None, prefs, force_fetch=True, emit_events=False)
+        hydrated = True
+    except Exception:
+        hydrated = False
+
+    response = {"id": follow_id, "hydrated": hydrated}
+    if not hydrated:
+        response["warning"] = "hydrate_failed"
+    elif prefs.get("channel_whatsapp"):
         response["warning"] = "whatsapp_delivery_not_implemented"
     return jsonify(response), 201
 
