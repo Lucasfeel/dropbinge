@@ -61,17 +61,19 @@ def get_cached(conn, media_type, tmdb_id, season_number) -> Optional[dict]:
     with managed_cursor(db) as cursor:
         cursor.execute(
             """
-            SELECT payload, expires_at
+            SELECT payload
             FROM tmdb_cache
-            WHERE media_type = %s AND tmdb_id = %s AND season_number = %s
+            WHERE media_type = %s
+              AND tmdb_id = %s
+              AND season_number = %s
+              AND expires_at IS NOT NULL
+              AND expires_at > timezone('utc', now())
+            LIMIT 1
             """,
             (media_type, tmdb_id, season_number),
         )
         row = cursor.fetchone()
     if not row:
-        return None
-    expires_at = row.get("expires_at")
-    if not expires_at or expires_at <= datetime.datetime.utcnow():
         return None
     return row.get("payload")
 

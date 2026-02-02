@@ -50,16 +50,18 @@ def get_tracking_cache(conn, media_type, tmdb_id, season_number):
             final_state,
             final_completed_at
         FROM tmdb_cache
-        WHERE media_type = %s AND tmdb_id = %s AND season_number = %s;
+        WHERE media_type = %s
+          AND tmdb_id = %s
+          AND season_number = %s
+          AND expires_at IS NOT NULL
+          AND expires_at > timezone('utc', now())
+        LIMIT 1;
         """,
         (media_type, tmdb_id, season_number),
     )
     row = cursor.fetchone()
     cursor.close()
     if not row:
-        return None
-    expires_at = row.get("expires_at")
-    if not expires_at or expires_at <= datetime.datetime.utcnow():
         return None
     return row
 
@@ -72,6 +74,7 @@ def compute_tracking_ttl_seconds(media_type, payload, follow_target_type):
     final_movie_statuses = {"Released"}
     final_tv_statuses = {"Ended", "Canceled"}
     movie_short_statuses = {"Rumored", "Planned", "In Production", "Post Production"}
+    last_air_date = _parse_date(payload.get("last_air_date"))
 
     if media_type == "movie" or follow_target_type == "movie":
         if status in final_movie_statuses:
@@ -83,7 +86,15 @@ def compute_tracking_ttl_seconds(media_type, payload, follow_target_type):
     if media_type == "tv" or follow_target_type == "tv_full":
         if status in final_tv_statuses:
             return 7 * 24 * 60 * 60
-        if next_episode_date or status not in final_tv_statuses:
+        has_missing_season_air_date = any(
+            season.get("air_date") is None for season in (payload.get("seasons") or [])
+        )
+        recent_window_days = 30
+        is_recent_air = (
+            last_air_date is not None
+            and last_air_date >= (datetime.date.today() - datetime.timedelta(days=recent_window_days))
+        )
+        if next_episode_date or has_missing_season_air_date or is_recent_air:
             return 6 * 60 * 60
         return 24 * 60 * 60
 
