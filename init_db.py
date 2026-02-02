@@ -62,6 +62,12 @@ def init_db():
             next_air_date DATE NULL,
             season_air_date DATE NULL,
             season_last_episode_air_date DATE NULL,
+            season_count INT NULL,
+            episode_count INT NULL,
+            last_episode_date DATE NULL,
+            next_episode_date DATE NULL,
+            final_state TEXT NULL,
+            final_completed_at DATE NULL,
             fetched_at TIMESTAMP NOT NULL DEFAULT NOW(),
             expires_at TIMESTAMP NULL,
             updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -84,6 +90,12 @@ def init_db():
         "ALTER TABLE tmdb_cache ADD COLUMN IF NOT EXISTS fetched_at TIMESTAMP NOT NULL DEFAULT NOW();"
     )
     cursor.execute("ALTER TABLE tmdb_cache ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP NULL;")
+    cursor.execute("ALTER TABLE tmdb_cache ADD COLUMN IF NOT EXISTS season_count INT NULL;")
+    cursor.execute("ALTER TABLE tmdb_cache ADD COLUMN IF NOT EXISTS episode_count INT NULL;")
+    cursor.execute("ALTER TABLE tmdb_cache ADD COLUMN IF NOT EXISTS last_episode_date DATE NULL;")
+    cursor.execute("ALTER TABLE tmdb_cache ADD COLUMN IF NOT EXISTS next_episode_date DATE NULL;")
+    cursor.execute("ALTER TABLE tmdb_cache ADD COLUMN IF NOT EXISTS final_state TEXT NULL;")
+    cursor.execute("ALTER TABLE tmdb_cache ADD COLUMN IF NOT EXISTS final_completed_at DATE NULL;")
 
     cursor.execute(
         """

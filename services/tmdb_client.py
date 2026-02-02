@@ -36,7 +36,7 @@ class TMDBRequestError(TMDBError):
 
 
 def _get_auth_params():
-    bearer = os.getenv("TMDB_BEARER_TOKEN")
+    bearer = os.getenv("TMDB_READ_ACCESS_TOKEN") or os.getenv("TMDB_BEARER_TOKEN")
     api_key = os.getenv("TMDB_API_KEY")
     headers = {"Accept": "application/json"}
     params = {}
@@ -45,7 +45,7 @@ def _get_auth_params():
     elif api_key:
         params["api_key"] = api_key
     else:
-        raise TMDBConfigError("TMDB_BEARER_TOKEN or TMDB_API_KEY must be set.")
+        raise TMDBConfigError("TMDB_READ_ACCESS_TOKEN or TMDB_API_KEY must be set.")
     return headers, params
 
 
