@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 
 import { ChipFilterRow } from "../components/ChipFilterRow";
 import { GridSkeleton } from "../components/GridSkeleton";
 import { PosterGrid } from "../components/PosterGrid";
 import { SectionHeader } from "../components/SectionHeader";
 import { fetchMoviePopular, fetchMovieUpcoming } from "../api/tmdbLists";
+import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 import { followKey, useFollowStore } from "../stores/followStore";
 import type { TitleSummary } from "../types";
 
@@ -17,13 +18,12 @@ const FILTERS = [
 
 export const MoviePage = () => {
   const { items, addFollow, removeFollow, isFollowing } = useFollowStore();
-  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const filter = params.get("filter") || "popular";
   const sort = params.get("sort") || "popularity";
   const [browseItems, setBrowseItems] = useState<TitleSummary[]>([]);
   const [browsePage, setBrowsePage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
+  const [totalPages, setTotalPages] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -71,10 +71,14 @@ export const MoviePage = () => {
     if (filter === "tracked") {
       setBrowseItems(trackedItems);
       setBrowsePage(1);
-      setTotalPages(1);
+      setTotalPages(null);
       setError(null);
       return;
     }
+    setBrowseItems([]);
+    setBrowsePage(1);
+    setTotalPages(null);
+    setError(null);
     loadBrowse(1, true);
   }, [filter, loadBrowse, trackedItems]);
 
@@ -106,7 +110,13 @@ export const MoviePage = () => {
     [addFollow, isFollowing, removeFollow],
   );
 
-  const canLoadMore = filter !== "tracked" && browsePage < totalPages;
+  const hasMore = filter !== "tracked" && (totalPages ? browsePage < totalPages : true);
+  const isLoadingMore = loading && browseItems.length > 0;
+  const loadMore = useCallback(() => {
+    if (!hasMore || loading || filter === "tracked") return;
+    loadBrowse(browsePage + 1, false);
+  }, [browsePage, filter, hasMore, loadBrowse, loading]);
+  const sentinelRef = useInfiniteScroll({ onLoadMore: loadMore, hasMore, loading });
 
   return (
     <div className="page">
@@ -138,16 +148,6 @@ export const MoviePage = () => {
             <option value="rating">Rating</option>
           </select>
         </div>
-      </div>
-
-      <div className="discovery-card">
-        <div>
-          <h3>Discover movies</h3>
-          <p className="muted">Search for titles and follow to build your schedule.</p>
-        </div>
-        <button className="button" onClick={() => navigate("/")}>
-          Search now
-        </button>
       </div>
 
       {trackedItems.length > 0 ? (
@@ -186,13 +186,8 @@ export const MoviePage = () => {
           getFollowState={getFollowState}
         />
       )}
-      {canLoadMore && (
-        <div className="load-more">
-          <button className="button secondary" onClick={() => loadBrowse(browsePage + 1, false)}>
-            Load more
-          </button>
-        </div>
-      )}
+      {isLoadingMore ? <GridSkeleton count={4} /> : null}
+      <div ref={sentinelRef} style={{ height: 1 }} />
     </div>
   );
 };
