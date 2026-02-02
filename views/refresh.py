@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 
 from database import get_db, get_cursor
 from services.refresh_service import refresh_follow
@@ -11,6 +11,13 @@ refresh_bp = Blueprint("refresh", __name__, url_prefix="/api/my")
 @require_auth
 def refresh_all(payload):
     user_id = int(payload["sub"])
+    force_param = request.args.get("force")
+    force = False
+    if force_param == "1":
+        force = True
+    body = request.get_json(silent=True) or {}
+    if isinstance(body, dict) and body.get("force") is True:
+        force = True
     db = get_db()
     cursor = get_cursor(db)
     cursor.execute(
@@ -38,5 +45,5 @@ def refresh_all(payload):
     follows = cursor.fetchall()
     events = []
     for follow in follows:
-        events.extend(refresh_follow(db, follow, follow))
+        events.extend(refresh_follow(db, follow, None, follow, force_fetch=force, emit_events=True))
     return jsonify({"refreshed": len(follows), "events": events})

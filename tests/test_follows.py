@@ -1,3 +1,6 @@
+from database import create_standalone_connection, get_cursor
+
+
 def _register(client):
     resp = client.post(
         "/api/auth/register",
@@ -89,3 +92,30 @@ def test_invalid_frequency_returns_400(client):
         json={"frequency": "weekly"},
     )
     assert patch_resp.status_code == 400
+
+
+def test_create_follow_hydrates_without_events(client, monkeypatch):
+    token = _register(client)
+
+    def fake_movie_details(movie_id):
+        return {"id": movie_id, "title": "Hydrated Movie", "release_date": "2032-01-01"}
+
+    monkeypatch.setattr("services.refresh_service.tmdb_client.get_movie_details", fake_movie_details)
+
+    create_resp = client.post(
+        "/api/my/follows",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"target_type": "movie", "tmdb_id": 888},
+    )
+    assert create_resp.status_code == 201
+    body = create_resp.get_json()
+    assert body["hydrated"] is True
+
+    conn = create_standalone_connection()
+    cursor = get_cursor(conn)
+    cursor.execute("SELECT * FROM change_events;")
+    assert cursor.fetchall() == []
+    cursor.execute("SELECT * FROM notification_outbox;")
+    assert cursor.fetchall() == []
+    cursor.close()
+    conn.close()
