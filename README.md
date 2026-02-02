@@ -10,8 +10,10 @@ DropBinge tracks release date “drops,” status changes, and completion signal
 ## Environment Variables
 - `DATABASE_URL` (preferred) **or** `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`
 - `JWT_SECRET`
-- `TMDB_BEARER_TOKEN` (preferred) or `TMDB_API_KEY`
+- `TMDB_READ_ACCESS_TOKEN` (preferred) or `TMDB_API_KEY`
 - `CORS_ALLOW_ORIGINS` (comma-separated or JSON list)
+
+TMDB `/api/tmdb` endpoints are server-side cached with TTLs and respect upstream 429 rate limiting responses.
 
 ## Backend Setup
 ```bash

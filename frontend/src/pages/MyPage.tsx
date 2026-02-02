@@ -49,7 +49,7 @@ export const MyPage = () => {
   };
 
   const refreshNow = async () => {
-    await apiFetch("/api/my/refresh", { method: "POST" });
+    await apiFetch("/api/my/refresh?force=1", { method: "POST" });
     refresh();
     if (activityLoaded) {
       loadActivity();
