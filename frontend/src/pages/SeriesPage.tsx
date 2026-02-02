@@ -1,49 +1,196 @@
-import { useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
-import { HorizontalRail } from "../components/HorizontalRail";
-import { PosterCard } from "../components/PosterCard";
+import { ChipFilterRow } from "../components/ChipFilterRow";
+import { GridSkeleton } from "../components/GridSkeleton";
+import { PosterGrid } from "../components/PosterGrid";
 import { SectionHeader } from "../components/SectionHeader";
-import { useFollowStore } from "../stores/followStore";
+import { fetchTvPopular } from "../api/tmdbLists";
+import { followKey, useFollowStore } from "../stores/followStore";
+import type { TitleSummary } from "../types";
+
+const FILTERS = [
+  { key: "popular", label: "Popular" },
+  { key: "top-rated", label: "Top Rated" },
+  { key: "tracked", label: "My Tracked" },
+];
 
 export const SeriesPage = () => {
-  const { items } = useFollowStore();
+  const { items, addFollow, removeFollow, isFollowing } = useFollowStore();
   const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const filter = params.get("filter") || "popular";
+  const sort = params.get("sort") || "popularity";
+  const [browseItems, setBrowseItems] = useState<TitleSummary[]>([]);
+  const [browsePage, setBrowsePage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const series = useMemo(
-    () => items.filter((item) => item.mediaType === "tv" && item.targetType === "tv_full"),
-    [items],
+  const series = useMemo(() => items.filter((item) => item.mediaType === "tv"), [items]);
+  const trackedItems = useMemo(
+    () =>
+      series
+        .filter((item) => item.targetType === "tv_full")
+        .map((item) => ({
+          id: item.tmdbId,
+          media_type: "tv" as const,
+          title: item.title,
+          poster_path: item.posterPath,
+          backdrop_path: null,
+          date: item.meta?.date || null,
+          vote_average: null,
+          vote_count: null,
+        })),
+    [series],
   );
+
+  const loadBrowse = useCallback(async (nextPage: number, replace: boolean) => {
+    setError(null);
+    setLoading(true);
+    try {
+      const response = await fetchTvPopular(nextPage);
+      setBrowsePage(response.page);
+      setTotalPages(response.total_pages);
+      setBrowseItems((prev) => (replace ? response.results : [...prev, ...response.results]));
+    } catch (err) {
+      setError("Unable to load browse results. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (filter === "tracked") {
+      setBrowseItems(trackedItems);
+      setBrowsePage(1);
+      setTotalPages(1);
+      setError(null);
+      return;
+    }
+    loadBrowse(1, true);
+  }, [filter, loadBrowse, trackedItems]);
+
+  useEffect(() => {
+    if (filter === "tracked") {
+      setBrowseItems(trackedItems);
+    }
+  }, [filter, trackedItems]);
+
+  const sortedBrowse = useMemo(() => {
+    if (filter === "top-rated") {
+      return [...browseItems].sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0));
+    }
+    if (sort !== "rating") return browseItems;
+    return [...browseItems].sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0));
+  }, [browseItems, filter, sort]);
+
+  const getFollowState = useCallback(
+    (item: TitleSummary) => isFollowing(followKey("tv", item.id)),
+    [isFollowing],
+  );
+
+  const handleToggleFollow = useCallback(
+    async (item: TitleSummary) => {
+      const key = followKey("tv", item.id);
+      if (isFollowing(key)) {
+        await removeFollow(key);
+        return;
+      }
+      await addFollow({ mediaType: "tv", tmdbId: item.id });
+    },
+    [addFollow, isFollowing, removeFollow],
+  );
+
+  const canLoadMore = filter !== "tracked" && browsePage < totalPages;
 
   return (
     <div className="page">
-      <SectionHeader
-        title="Series"
-        subtitle="Full-run tracking for entire shows. Track when they conclude and key changes."
-      />
+      <div className="page-hero">
+        <SectionHeader
+          title="Series"
+          subtitle="Full-run tracking for entire shows. Track when they conclude and key changes."
+        />
+      </div>
+      <div className="filter-controls">
+        <ChipFilterRow>
+          {FILTERS.map((item) => (
+            <button
+              key={item.key}
+              className={`chip ${filter === item.key ? "active" : ""}`}
+              onClick={() => setParams({ filter: item.key, sort })}
+            >
+              {item.label}
+            </button>
+          ))}
+        </ChipFilterRow>
+        <div className="sort-select">
+          <label className="muted" htmlFor="series-sort">
+            Sort
+          </label>
+          <select
+            id="series-sort"
+            value={sort}
+            onChange={(event) => setParams({ filter, sort: event.target.value })}
+          >
+            <option value="popularity">Popularity</option>
+            <option value="rating">Rating</option>
+          </select>
+        </div>
+      </div>
+
       <div className="discovery-card">
         <div>
           <h3>Find a series</h3>
           <p className="muted">Search for a show to start tracking its full run.</p>
         </div>
-        <button className="button" onClick={() => navigate("/")}>Search now</button>
+        <button className="button" onClick={() => navigate("/")}>
+          Search now
+        </button>
       </div>
 
-      <SectionHeader title="Tracked series" />
-      {series.length === 0 ? (
-        <p className="muted">No series tracked yet.</p>
+      {trackedItems.length > 0 ? (
+        <>
+          <SectionHeader title="My tracked" subtitle="Series you are tracking end-to-end." />
+          <PosterGrid
+            items={trackedItems}
+            mediaType="tv"
+            onToggleFollow={handleToggleFollow}
+            getFollowState={getFollowState}
+          />
+        </>
       ) : (
-        <HorizontalRail>
-          {series.map((item) => (
-            <PosterCard
-              key={item.key}
-              title={item.title}
-              subtitle={item.meta?.date || "TBD"}
-              posterPath={item.posterPath}
-              to={`/title/tv/${item.tmdbId}`}
-            />
-          ))}
-        </HorizontalRail>
+        <>
+          <SectionHeader title="My tracked" />
+          <p className="muted">Search and add titles to track.</p>
+        </>
+      )}
+
+      <SectionHeader title="Browse" subtitle="Browse popular and long-running series." />
+      {error ? (
+        <div className="card">
+          <p>{error}</p>
+          <button className="button secondary" onClick={() => loadBrowse(1, true)}>
+            Retry
+          </button>
+        </div>
+      ) : null}
+      {loading && browseItems.length === 0 ? (
+        <GridSkeleton count={8} />
+      ) : (
+        <PosterGrid
+          items={sortedBrowse}
+          mediaType="tv"
+          onToggleFollow={handleToggleFollow}
+          getFollowState={getFollowState}
+        />
+      )}
+      {canLoadMore && (
+        <div className="load-more">
+          <button className="button secondary" onClick={() => loadBrowse(browsePage + 1, false)}>
+            Load more
+          </button>
+        </div>
       )}
     </div>
   );
