@@ -1,6 +1,7 @@
 import { Route, Routes } from "react-router-dom";
 
 import { AppShell } from "./components/AppShell";
+import { ScrollRestoration } from "./components/ScrollRestoration";
 import { AuthProvider } from "./context/AuthContext";
 import { DetailsPage } from "./pages/DetailsPage";
 import { HomePage } from "./pages/HomePage";
@@ -12,6 +13,7 @@ import { TvPage } from "./pages/TvPage";
 
 const App = () => (
   <AuthProvider>
+    <ScrollRestoration />
     <Routes>
       <Route element={<AppShell />}>
         <Route path="/" element={<HomePage />} />

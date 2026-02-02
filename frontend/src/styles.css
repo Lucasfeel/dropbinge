@@ -496,10 +496,17 @@ a {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-@media (min-width: 900px) {
+@media (min-width: 768px) {
   .poster-grid {
     gap: 14px;
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1100px) {
+  .poster-grid {
+    gap: 14px;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 }
 
