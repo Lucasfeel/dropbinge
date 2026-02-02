@@ -9,9 +9,12 @@ export const GridSkeleton = ({ count = 8 }: GridSkeletonProps) => (
         <div className="poster-tile-media">
           <div className="skeleton-box" />
         </div>
-        <div className="poster-tile-body">
-          <div className="skeleton-line" />
-          <div className="skeleton-line short" />
+        <div className="poster-tile-footer">
+          <div className="poster-tile-text">
+            <div className="skeleton-line" />
+            <div className="skeleton-line short" />
+          </div>
+          <div className="skeleton-circle" />
         </div>
       </div>
     ))}

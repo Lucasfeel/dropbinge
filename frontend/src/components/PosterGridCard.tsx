@@ -51,6 +51,17 @@ export const PosterGridCard = ({
             <div className="poster-fallback" />
           )}
         </Link>
+      </div>
+      <div className="poster-tile-footer">
+        <div className="poster-tile-text">
+          <Link to={link} className="poster-tile-title">
+            {item.title}
+          </Link>
+          <div className="poster-meta">
+            <span>{metaDate}</span>
+            {rating && <span>{rating}</span>}
+          </div>
+        </div>
         <button
           type="button"
           className={`tile-action ${isFollowed ? "active" : ""}`}
@@ -59,15 +70,6 @@ export const PosterGridCard = ({
         >
           {isFollowed ? "✓" : "+"}
         </button>
-      </div>
-      <div className="poster-tile-body">
-        <Link to={link} className="poster-tile-title">
-          {item.title}
-        </Link>
-        <div className="poster-meta">
-          <span>{metaDate}</span>
-          {rating && <span>{rating}</span>}
-        </div>
       </div>
     </div>
   );

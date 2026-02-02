@@ -29,15 +29,15 @@ a {
 }
 
 .container {
-  width: min(480px, 100%);
+  width: min(1100px, 100%);
   margin: 0 auto;
-  padding: 0 16px;
+  padding: 0 12px;
 }
 
 .page {
-  padding: 16px;
+  padding: 12px;
   padding-bottom: calc(96px + env(safe-area-inset-bottom));
-  max-width: 480px;
+  max-width: 1100px;
   margin: 0 auto;
 }
 
@@ -471,17 +471,12 @@ a {
 .poster-grid {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-@media (min-width: 360px) {
+@media (min-width: 900px) {
   .poster-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-@media (min-width: 430px) {
-  .poster-grid {
+    gap: 14px;
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
@@ -489,17 +484,13 @@ a {
 .poster-tile {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 14px;
+  border-radius: 18px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 8px;
 }
 
 .poster-tile-media {
-  position: relative;
-  border-radius: 12px;
   overflow: hidden;
   aspect-ratio: 2 / 3;
   background: #1a2435;
@@ -517,7 +508,16 @@ a {
   display: block;
 }
 
-.poster-tile-body {
+.poster-tile-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px;
+}
+
+.poster-tile-text {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -535,22 +535,19 @@ a {
   font-size: 12px;
   opacity: 0.75;
   display: flex;
-  justify-content: space-between;
+  gap: 8px;
 }
 
 .tile-action {
-  position: absolute;
-  right: 8px;
-  bottom: 8px;
-  width: 28px;
-  height: 28px;
+  width: 36px;
+  height: 36px;
   border-radius: 999px;
-  border: none;
-  background: rgba(15, 22, 35, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(20, 28, 44, 0.95);
   color: #f5f6fb;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.35);
 }
 
 .tile-action.active {
@@ -559,7 +556,7 @@ a {
 }
 
 .poster-skeleton {
-  padding: 8px;
+  padding: 0;
 }
 
 .skeleton-box {
@@ -583,6 +580,14 @@ a {
   width: 60%;
 }
 
+.skeleton-circle {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: linear-gradient(120deg, #1a2435 25%, #222f48 50%, #1a2435 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
 @keyframes shimmer {
   0% {
     background-position: 200% 0;
