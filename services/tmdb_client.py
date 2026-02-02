@@ -95,30 +95,70 @@ def _request(path, params=None):
         raise error_cls("TMDB request failed.")
     raise TMDBUpstreamError("TMDB request failed.")
 
+def tmdb_get(path, params=None):
+    return _request(path, params=params)
+
 
 def search_multi(query, page=1, language=None):
     params = {"query": query, "page": page, "include_adult": False}
     if language:
         params["language"] = language
-    return _request("/search/multi", params=params)
+    return tmdb_get("/search/multi", params=params)
 
 
 def get_movie_details(movie_id, append=None):
     params = {}
     if append:
         params["append_to_response"] = append
-    return _request(f"/movie/{movie_id}", params=params)
+    return tmdb_get(f"/movie/{movie_id}", params=params)
 
 
 def get_tv_details(tv_id, append=None):
     params = {}
     if append:
         params["append_to_response"] = append
-    return _request(f"/tv/{tv_id}", params=params)
+    return tmdb_get(f"/tv/{tv_id}", params=params)
 
 
 def get_tv_season_details(tv_id, season_number, append=None):
     params = {}
     if append:
         params["append_to_response"] = append
-    return _request(f"/tv/{tv_id}/season/{season_number}", params=params)
+    return tmdb_get(f"/tv/{tv_id}/season/{season_number}", params=params)
+
+
+def list_movie_popular(page=1, language=None):
+    params = {"page": page}
+    if language:
+        params["language"] = language
+    return tmdb_get("/movie/popular", params=params)
+
+
+def list_movie_upcoming(page=1, language=None, region=None):
+    params = {"page": page}
+    if language:
+        params["language"] = language
+    if region:
+        params["region"] = region
+    return tmdb_get("/movie/upcoming", params=params)
+
+
+def list_tv_popular(page=1, language=None):
+    params = {"page": page}
+    if language:
+        params["language"] = language
+    return tmdb_get("/tv/popular", params=params)
+
+
+def list_tv_on_the_air(page=1, language=None):
+    params = {"page": page}
+    if language:
+        params["language"] = language
+    return tmdb_get("/tv/on_the_air", params=params)
+
+
+def list_trending_all_day(page=1, language=None):
+    params = {"page": page}
+    if language:
+        params["language"] = language
+    return tmdb_get("/trending/all/day", params=params)

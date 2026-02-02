@@ -1,40 +1,37 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { apiFetch } from "../api";
+import { fetchTrendingAllDay } from "../api/tmdbLists";
 import { HorizontalRail } from "../components/HorizontalRail";
-import { PosterCard } from "../components/PosterCard";
+import { GridSkeleton } from "../components/GridSkeleton";
+import { PosterGridCard } from "../components/PosterGridCard";
 import { SectionHeader } from "../components/SectionHeader";
-import { useFollowStore } from "../stores/followStore";
+import { followKey, useFollowStore } from "../stores/followStore";
+import type { TitleSummary } from "../types";
 import { getRecentSearches } from "../utils/searchHistory";
-
-const TRENDING_SEEDS = [
-  { mediaType: "movie" as const, tmdbId: 603 },
-  { mediaType: "movie" as const, tmdbId: 27205 },
-  { mediaType: "tv" as const, tmdbId: 1399 },
-];
 
 export const HomePage = () => {
   const navigate = useNavigate();
-  const { items: followItems } = useFollowStore();
-  const [trendItems, setTrendItems] = useState<any[]>([]);
+  const { items: followItems, addFollow, removeFollow, isFollowing } = useFollowStore();
+  const [trendItems, setTrendItems] = useState<TitleSummary[]>([]);
+  const [trendLoading, setTrendLoading] = useState(true);
   const [recentSearches, setRecentSearches] = useState(getRecentSearches());
 
   useEffect(() => {
     let active = true;
     const loadTrending = async () => {
+      setTrendLoading(true);
       try {
-        const data = await Promise.all(
-          TRENDING_SEEDS.map((seed) =>
-            apiFetch<any>(`/api/tmdb/${seed.mediaType}/${seed.tmdbId}`),
-          ),
-        );
-        if (active) {
-          setTrendItems(data.map((item, index) => ({ ...item, mediaType: TRENDING_SEEDS[index].mediaType })));
-        }
+        const response = await fetchTrendingAllDay(1);
+        if (!active) return;
+        setTrendItems(response.results.slice(0, 12));
       } catch (error) {
         if (active) {
           setTrendItems([]);
+        }
+      } finally {
+        if (active) {
+          setTrendLoading(false);
         }
       }
     };
@@ -54,24 +51,74 @@ export const HomePage = () => {
     };
   }, []);
 
+  const trendList = useMemo(() => trendItems.slice(0, 12), [trendItems]);
+  const recentItems = useMemo<TitleSummary[]>(
+    () =>
+      recentSearches.map((item) => ({
+        id: item.tmdbId,
+        media_type: item.mediaType,
+        title: item.title,
+        poster_path: item.posterPath,
+        backdrop_path: null,
+        date: item.meta?.date || null,
+        vote_average: null,
+        vote_count: null,
+      })),
+    [recentSearches],
+  );
+  const followSummaries = useMemo<TitleSummary[]>(
+    () =>
+      followItems.map((item) => ({
+        id: item.tmdbId,
+        media_type: item.mediaType,
+        title: item.title,
+        poster_path: item.posterPath,
+        backdrop_path: null,
+        date: item.meta?.date || null,
+        vote_average: null,
+        vote_count: null,
+      })),
+    [followItems],
+  );
+
+  const getFollowState = useCallback(
+    (id: number, mediaType: "movie" | "tv") => isFollowing(followKey(mediaType, id)),
+    [isFollowing],
+  );
+
+  const handleToggleFollow = useCallback(
+    async (item: TitleSummary, mediaType: "movie" | "tv") => {
+      const key = followKey(mediaType, item.id);
+      if (isFollowing(key)) {
+        await removeFollow(key);
+        return;
+      }
+      await addFollow({ mediaType, tmdbId: item.id });
+    },
+    [addFollow, isFollowing, removeFollow],
+  );
+
   return (
-    <div className="page">
+    <div className="page home-page">
       <SectionHeader title="Today’s Trend" subtitle="Top picks to start your night." />
-      <div className="trend-grid">
-        {trendItems.length === 0
-          ? TRENDING_SEEDS.map((seed) => (
-              <div key={`${seed.mediaType}-${seed.tmdbId}`} className="trend-placeholder" />
-            ))
-          : trendItems.map((item) => (
-              <PosterCard
-                key={item.id}
-                title={item.title || item.name}
-                subtitle={item.release_date || item.first_air_date || "TBD"}
-                posterPath={item.poster_path}
-                to={`/title/${item.mediaType}/${item.id}`}
+      {trendLoading ? (
+        <GridSkeleton count={12} />
+      ) : (
+        <div className="poster-grid">
+          {trendList.map((item) => {
+            const mediaType = item.media_type === "tv" ? "tv" : "movie";
+            return (
+              <PosterGridCard
+                key={`${mediaType}-${item.id}`}
+                item={item}
+                mediaType={mediaType}
+                isFollowed={getFollowState(item.id, mediaType)}
+                onToggleFollow={(target) => handleToggleFollow(target, mediaType)}
               />
-            ))}
-      </div>
+            );
+          })}
+        </div>
+      )}
 
       <SectionHeader title="Quick Actions" />
       <div className="quick-actions">
@@ -90,13 +137,13 @@ export const HomePage = () => {
         <p className="muted">Search for a title to build your history.</p>
       ) : (
         <HorizontalRail>
-          {recentSearches.map((item) => (
-            <PosterCard
-              key={item.key}
-              title={item.title}
-              subtitle={item.meta?.date || "TBD"}
-              posterPath={item.posterPath}
-              to={`/title/${item.mediaType}/${item.tmdbId}`}
+          {recentItems.map((item) => (
+            <PosterGridCard
+              key={`${item.media_type}-${item.id}`}
+              item={item}
+              mediaType={item.media_type}
+              isFollowed={getFollowState(item.id, item.media_type)}
+              onToggleFollow={(target) => handleToggleFollow(target, item.media_type)}
             />
           ))}
         </HorizontalRail>
@@ -107,13 +154,13 @@ export const HomePage = () => {
         <p className="muted">No follows yet. Tap a title to start tracking.</p>
       ) : (
         <HorizontalRail>
-          {followItems.slice(0, 12).map((item) => (
-            <PosterCard
-              key={item.key}
-              title={item.title}
-              subtitle={item.meta?.date || "TBD"}
-              posterPath={item.posterPath}
-              to={`/title/${item.mediaType}/${item.tmdbId}`}
+          {followSummaries.slice(0, 12).map((item) => (
+            <PosterGridCard
+              key={`${item.media_type}-${item.id}`}
+              item={item}
+              mediaType={item.media_type}
+              isFollowed={getFollowState(item.id, item.media_type)}
+              onToggleFollow={(target) => handleToggleFollow(target, item.media_type)}
             />
           ))}
         </HorizontalRail>
