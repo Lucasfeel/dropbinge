@@ -73,3 +73,20 @@ export type ActivityResponse = {
     };
   };
 };
+
+export type TitleSummary = {
+  id: number;
+  media_type: "movie" | "tv";
+  title: string;
+  poster_path: string | null;
+  backdrop_path: string | null;
+  date: string | null;
+  vote_average: number | null;
+  vote_count: number | null;
+};
+
+export type TitleSummaryResponse = {
+  page: number;
+  total_pages: number;
+  results: TitleSummary[];
+};
