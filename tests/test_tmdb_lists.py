@@ -99,3 +99,31 @@ def test_list_movie_popular_sets_completed(client, monkeypatch):
     body = resp.get_json()
     assert body["results"][0]["is_completed"] is True
     assert body["results"][1]["is_completed"] is None
+
+
+def test_list_tv_popular_marks_ended_as_completed(client, monkeypatch):
+    def fake_list_tv_popular(page=1, language=None):
+        return {
+            "page": page,
+            "total_pages": 1,
+            "results": [
+                {"id": 100, "name": "Ended Show"},
+                {"id": 101, "name": "Returning Show"},
+            ],
+        }
+
+    def fake_get_tv_details(tv_id, append=None):
+        if tv_id == 100:
+            return {"id": tv_id, "status": "Ended"}
+        return {"id": tv_id, "status": "Returning Series"}
+
+    monkeypatch.setattr(tmdb_client, "list_tv_popular", fake_list_tv_popular)
+    monkeypatch.setattr(tmdb_client, "get_tv_details", fake_get_tv_details)
+
+    resp = client.get("/api/tmdb/list/tv/popular?page=1")
+
+    assert resp.status_code == 200
+    body = resp.get_json()
+    results = {item["id"]: item for item in body["results"]}
+    assert results[100]["is_completed"] is True
+    assert results[101]["is_completed"] is None

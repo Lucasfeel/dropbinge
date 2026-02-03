@@ -12,7 +12,6 @@ import type { TitleSummary } from "../types";
 
 const FILTERS = [
   { key: "on-the-air", label: "On The Air" },
-  { key: "popular", label: "Popular" },
   { key: "completed", label: "Completed" },
 ];
 const DEFAULT_FILTER = "on-the-air";
@@ -82,9 +81,20 @@ export const TvPage = () => {
     loadBrowse(1, true);
   }, [filter, loadBrowse]);
 
+  const toTimestamp = (value?: string | null) => {
+    if (!value) return 0;
+    const ts = Date.parse(value);
+    return Number.isFinite(ts) ? ts : 0;
+  };
+
   const sortedBrowse = useMemo(() => {
-    if (sort !== "rating") return browseItems;
-    return [...browseItems].sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0));
+    if (sort === "rating") {
+      return [...browseItems].sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0));
+    }
+    if (sort === "latest") {
+      return [...browseItems].sort((a, b) => toTimestamp(b.date) - toTimestamp(a.date));
+    }
+    return browseItems;
   }, [browseItems, sort]);
 
   const hasMore = !error && (totalPages ? browsePage < totalPages : true);
@@ -123,6 +133,7 @@ export const TvPage = () => {
           >
             <option value="popularity">Popularity</option>
             <option value="rating">Rating</option>
+            <option value="latest">Latest</option>
           </select>
         </div>
       </div>
