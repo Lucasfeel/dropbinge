@@ -210,6 +210,9 @@ def test_list_tv_seasons_upcoming_filters_future(client, monkeypatch):
             "results": [{"id": 200, "name": "Future Show"}],
         }
 
+    def fake_list_tv_on_the_air(page=1, language=None):
+        return {"page": page, "total_pages": 1, "results": []}
+
     def fake_get_tv_details(tv_id):
         return {
             "id": tv_id,
@@ -222,6 +225,7 @@ def test_list_tv_seasons_upcoming_filters_future(client, monkeypatch):
 
     monkeypatch.setattr(tmdb_views, "date", FixedDate)
     monkeypatch.setattr(tmdb_client, "list_tv_popular", fake_list_tv_popular)
+    monkeypatch.setattr(tmdb_client, "list_tv_on_the_air", fake_list_tv_on_the_air)
     monkeypatch.setattr(tmdb_client, "get_tv_details", fake_get_tv_details)
 
     resp = client.get("/api/tmdb/list/tv/seasons?page=1&list=upcoming")
@@ -231,4 +235,24 @@ def test_list_tv_seasons_upcoming_filters_future(client, monkeypatch):
     assert len(body["results"]) == 1
     assert body["results"][0]["season_number"] == 2
     assert body["results"][0]["is_completed"] is False
-    assert 1 <= body["total_pages"] <= 5
+    assert 1 <= body["total_pages"] <= 50
+
+
+def test_list_movie_completed_bypasses_cache(client, monkeypatch):
+    def fake_discover_movies(params):
+        return {
+            "page": params["page"],
+            "total_pages": 1,
+            "results": [
+                {"id": 1, "title": "Old Movie", "release_date": "2000-01-01"},
+            ],
+        }
+
+    monkeypatch.setattr(tmdb_client, "discover_movies", fake_discover_movies)
+
+    resp = client.get("/api/tmdb/list/movie/completed?page=1")
+
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["results"][0]["is_completed"] is True
+    assert resp.headers["X-Cache"] == "BYPASS"

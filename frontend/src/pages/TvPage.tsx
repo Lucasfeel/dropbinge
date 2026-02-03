@@ -61,15 +61,9 @@ export const TvPage = () => {
         );
         setBrowsePage(response.page);
         setTotalPages(response.total_pages);
-        const todayMidnight = new Date();
-        todayMidnight.setHours(0, 0, 0, 0);
         const results =
           filter === "upcoming"
-            ? response.results.filter((item) => {
-                if (item.is_completed === true) return false;
-                const ts = Date.parse(item.date ?? "");
-                return Number.isFinite(ts) && ts > todayMidnight.getTime();
-              })
+            ? response.results.filter((item) => item.is_completed !== true)
             : response.results;
         setBrowseItems((prev) => (replace ? results : [...prev, ...results]));
       } catch (err) {

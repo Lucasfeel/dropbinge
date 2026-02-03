@@ -78,27 +78,36 @@ def _list_cache_key(path, params):
     return tmdb_http_cache.make_cache_key("http:tmdb_list", query_key=query_key)
 
 
-def _list_endpoint(path, fetcher, media_type, params):
-    cache_key = _list_cache_key(path, params)
+def _list_endpoint(path, fetcher, media_type, params, *, cache_ttl_seconds=None, cache_enabled=True):
+    cache_key = _list_cache_key(path, params) if cache_enabled else None
+    ttl_seconds = (
+        tmdb_http_cache.LIST_TTL_SECONDS
+        if cache_ttl_seconds is None
+        else cache_ttl_seconds
+    )
     try:
-        cached = tmdb_http_cache.get_cached(None, *cache_key)
-        if cached is not None:
-            _log_cache(path, "HIT", 0)
-            return _json_response(cached, cache_status="HIT")
+        if cache_enabled:
+            cached = tmdb_http_cache.get_cached(None, *cache_key)
+            if cached is not None:
+                _log_cache(path, "HIT", 0)
+                return _json_response(cached, cache_status="HIT")
         start = time.perf_counter()
         payload = fetcher(**params)
         latency_ms = int((time.perf_counter() - start) * 1000)
         normalized = _normalize_list_payload(payload, media_type)
-        tmdb_http_cache.set_cached(
-            None,
-            cache_key[0],
-            cache_key[1],
-            cache_key[2],
-            normalized,
-            tmdb_http_cache.LIST_TTL_SECONDS,
-        )
-        _log_cache(path, "MISS", latency_ms)
-        return _json_response(normalized, cache_status="MISS")
+        cache_status = "BYPASS"
+        if cache_enabled:
+            tmdb_http_cache.set_cached(
+                None,
+                cache_key[0],
+                cache_key[1],
+                cache_key[2],
+                normalized,
+                ttl_seconds,
+            )
+            cache_status = "MISS"
+        _log_cache(path, cache_status, latency_ms)
+        return _json_response(normalized, cache_status=cache_status)
     except tmdb_client.TMDBConfigError:
         return _tmdb_error_response(
             "tmdb_not_configured", "TMDB credentials are not configured"
@@ -161,6 +170,28 @@ def _get_tv_popular_page_cached(page, language=None):
     return payload
 
 
+def _get_tv_on_the_air_page_cached(page, language=None):
+    query_key = f"page={page}&language={language or ''}"
+    cache_key = tmdb_http_cache.make_cache_key("http:tv_on_the_air_raw", query_key=query_key)
+    cached = tmdb_http_cache.get_cached(None, *cache_key)
+    if cached is not None:
+        _log_cache("tv_on_the_air_raw", "HIT", 0)
+        return cached
+    start = time.perf_counter()
+    payload = tmdb_client.list_tv_on_the_air(page=page, language=language)
+    latency_ms = int((time.perf_counter() - start) * 1000)
+    tmdb_http_cache.set_cached(
+        None,
+        cache_key[0],
+        cache_key[1],
+        cache_key[2],
+        payload,
+        tmdb_http_cache.LIST_TTL_SECONDS,
+    )
+    _log_cache("tv_on_the_air_raw", "MISS", latency_ms)
+    return payload
+
+
 def _pick_next_upcoming_season(details, today_iso):
     seasons = details.get("seasons") or []
     upcoming = []
@@ -173,6 +204,21 @@ def _pick_next_upcoming_season(details, today_iso):
             continue
         upcoming.append(season)
     if not upcoming:
+        next_episode = details.get("next_episode_to_air") or {}
+        next_air_date = next_episode.get("air_date")
+        season_number = next_episode.get("season_number")
+        if next_air_date and next_air_date > today_iso and isinstance(season_number, int):
+            season = next(
+                (entry for entry in seasons if entry.get("season_number") == season_number),
+                None,
+            )
+            if season is None:
+                season = {
+                    "season_number": season_number,
+                    "name": f"Season {season_number}",
+                }
+            season["air_date"] = next_air_date
+            return season
         return None
     return min(upcoming, key=lambda season: season.get("air_date") or "")
 
@@ -556,33 +602,40 @@ def list_tv_seasons():
     if list_key not in {"on-the-air", "popular", "completed", "upcoming"}:
         list_key = "on-the-air"
     language = request.args.get("language")
-    cache_key = tmdb_http_cache.make_cache_key(
-        "http:tv_seasons_list",
-        query_key=f"list={list_key}&page={page}&language={language or ''}",
+    cache_enabled = list_key != "completed"
+    cache_key = (
+        tmdb_http_cache.make_cache_key(
+            "http:tv_seasons_list",
+            query_key=f"list={list_key}&page={page}&language={language or ''}",
+        )
+        if cache_enabled
+        else None
     )
     try:
-        cached = tmdb_http_cache.get_cached(None, *cache_key)
-        if cached is not None:
-            _log_cache("tv_seasons_list", "HIT", 0)
-            return _json_response(cached, cache_status="HIT")
+        if cache_enabled:
+            cached = tmdb_http_cache.get_cached(None, *cache_key)
+            if cached is not None:
+                _log_cache("tv_seasons_list", "HIT", 0)
+                return _json_response(cached, cache_status="HIT")
         if list_key == "upcoming":
             virtual_page_size = 20
-            max_virtual_pages = 5
-            max_source_pages = 25
+            max_virtual_pages = 50
+            max_source_pages_per_feed = 120
             if page > max_virtual_pages:
                 response = {
                     "page": page,
                     "total_pages": max_virtual_pages,
                     "results": [],
                 }
-                tmdb_http_cache.set_cached(
-                    None,
-                    cache_key[0],
-                    cache_key[1],
-                    cache_key[2],
-                    response,
-                    tmdb_http_cache.LIST_TTL_SECONDS,
-                )
+                if cache_enabled:
+                    tmdb_http_cache.set_cached(
+                        None,
+                        cache_key[0],
+                        cache_key[1],
+                        cache_key[2],
+                        response,
+                        tmdb_http_cache.LIST_TTL_SECONDS,
+                    )
                 _log_cache("tv_seasons_list", "MISS", 0)
                 return _json_response(response, cache_status="MISS")
 
@@ -593,58 +646,74 @@ def list_tv_seasons():
             )
             collected = []
             seen = set()
-            for source_page in range(1, max_source_pages + 1):
-                raw_payload = _get_tv_popular_page_cached(source_page, language)
-                base_results = raw_payload.get("results") or []
-                for item in base_results:
-                    tv_id = item.get("id")
-                    if not tv_id:
-                        continue
-                    try:
-                        details = _get_tv_details_cached(tv_id)
-                    except tmdb_client.TMDBError:
-                        continue
-                    except Exception:
-                        logger.exception(
-                            "tv_seasons upcoming details worker failed tv_id=%s page=%s",
-                            tv_id,
-                            page,
+            seen_tv_ids = set()
+            feeds = (
+                _get_tv_popular_page_cached,
+                _get_tv_on_the_air_page_cached,
+            )
+            for source_page in range(1, max_source_pages_per_feed + 1):
+                for feed in feeds:
+                    raw_payload = feed(source_page, language)
+                    base_results = raw_payload.get("results") or []
+                    for item in base_results:
+                        tv_id = item.get("id")
+                        if not tv_id:
+                            continue
+                        if tv_id in seen_tv_ids:
+                            continue
+                        seen_tv_ids.add(tv_id)
+                        try:
+                            details = _get_tv_details_cached(tv_id)
+                        except tmdb_client.TMDBError:
+                            continue
+                        except Exception:
+                            logger.exception(
+                                "tv_seasons upcoming details worker failed tv_id=%s page=%s",
+                                tv_id,
+                                page,
+                            )
+                            continue
+                        status = details.get("status")
+                        if status in {"Ended", "Canceled"}:
+                            continue
+                        season = _pick_next_upcoming_season(details, today_iso)
+                        if not season:
+                            continue
+                        season_number = season.get("season_number")
+                        if not isinstance(season_number, int):
+                            continue
+                        if not season.get("air_date"):
+                            continue
+                        series_id = details.get("id") or tv_id
+                        key = (series_id, season_number)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        series_name = details.get("name") or item.get("name") or f"TMDB {series_id}"
+                        season_id = season.get("id") or abs(
+                            tmdb_http_cache.stable_bigint_hash(
+                                f"tv:{series_id}:season:{season_number}"
+                            )
                         )
-                        continue
-                    season = _pick_next_upcoming_season(details, today_iso)
-                    if not season:
-                        continue
-                    season_number = season.get("season_number")
-                    if not isinstance(season_number, int):
-                        continue
-                    series_id = details.get("id") or tv_id
-                    key = (series_id, season_number)
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    series_name = details.get("name") or item.get("name") or f"TMDB {series_id}"
-                    season_id = season.get("id") or abs(
-                        tmdb_http_cache.stable_bigint_hash(
-                            f"tv:{series_id}:season:{season_number}"
+                        collected.append(
+                            {
+                                "id": season_id,
+                                "media_type": "tv",
+                                "title": series_name,
+                                "poster_path": season.get("poster_path") or item.get("poster_path"),
+                                "backdrop_path": item.get("backdrop_path"),
+                                "date": season.get("air_date"),
+                                "vote_average": item.get("vote_average"),
+                                "vote_count": item.get("vote_count"),
+                                "is_completed": False,
+                                "season_number": season_number,
+                                "season_name": season.get("name"),
+                                "series_id": series_id,
+                                "series_name": series_name,
+                            }
                         )
-                    )
-                    collected.append(
-                        {
-                            "id": season_id,
-                            "media_type": "tv",
-                            "title": series_name,
-                            "poster_path": season.get("poster_path") or item.get("poster_path"),
-                            "backdrop_path": item.get("backdrop_path"),
-                            "date": season.get("air_date"),
-                            "vote_average": item.get("vote_average"),
-                            "vote_count": item.get("vote_count"),
-                            "is_completed": False,
-                            "season_number": season_number,
-                            "season_name": season.get("name"),
-                            "series_id": series_id,
-                            "series_name": series_name,
-                        }
-                    )
+                        if len(collected) >= target_count:
+                            break
                     if len(collected) >= target_count:
                         break
                 if len(collected) >= target_count:
@@ -663,14 +732,15 @@ def list_tv_seasons():
                 "total_pages": total_pages,
                 "results": page_items,
             }
-            tmdb_http_cache.set_cached(
-                None,
-                cache_key[0],
-                cache_key[1],
-                cache_key[2],
-                response,
-                tmdb_http_cache.LIST_TTL_SECONDS,
-            )
+            if cache_enabled:
+                tmdb_http_cache.set_cached(
+                    None,
+                    cache_key[0],
+                    cache_key[1],
+                    cache_key[2],
+                    response,
+                    tmdb_http_cache.LIST_TTL_SECONDS,
+                )
             _log_cache("tv_seasons_list", "MISS", 0)
             return _json_response(response, cache_status="MISS")
         if list_key == "popular":
@@ -813,16 +883,19 @@ def list_tv_seasons():
             "total_pages": base_payload.get("total_pages", 1),
             "results": season_items,
         }
-        tmdb_http_cache.set_cached(
-            None,
-            cache_key[0],
-            cache_key[1],
-            cache_key[2],
-            response,
-            tmdb_http_cache.LIST_TTL_SECONDS,
-        )
-        _log_cache("tv_seasons_list", "MISS", 0)
-        return _json_response(response, cache_status="MISS")
+        cache_status = "BYPASS"
+        if cache_enabled:
+            tmdb_http_cache.set_cached(
+                None,
+                cache_key[0],
+                cache_key[1],
+                cache_key[2],
+                response,
+                tmdb_http_cache.LIST_TTL_SECONDS,
+            )
+            cache_status = "MISS"
+        _log_cache("tv_seasons_list", cache_status, 0)
+        return _json_response(response, cache_status=cache_status)
     except tmdb_client.TMDBConfigError:
         return _tmdb_error_response(
             "tmdb_not_configured", "TMDB credentials are not configured"
@@ -851,7 +924,9 @@ def list_movie_completed():
         payload = tmdb_client.discover_movies(kwargs)
         return _mark_completed_results(payload)
 
-    return _list_endpoint("/movie/completed", fetcher, "movie", params)
+    return _list_endpoint(
+        "/movie/completed", fetcher, "movie", params, cache_enabled=False
+    )
 
 
 @tmdb_bp.get("/list/tv/completed")
@@ -869,7 +944,7 @@ def list_tv_completed():
         payload = tmdb_client.discover_tv(kwargs)
         return _mark_completed_results(payload)
 
-    return _list_endpoint("/tv/completed", fetcher, "tv", params)
+    return _list_endpoint("/tv/completed", fetcher, "tv", params, cache_enabled=False)
 
 
 @tmdb_bp.get("/list/series/completed")
@@ -887,4 +962,6 @@ def list_series_completed():
         payload = tmdb_client.discover_tv(kwargs)
         return _mark_completed_results(payload)
 
-    return _list_endpoint("/series/completed", fetcher, "tv", params)
+    return _list_endpoint(
+        "/series/completed", fetcher, "tv", params, cache_enabled=False
+    )

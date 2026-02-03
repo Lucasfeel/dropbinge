@@ -8,12 +8,25 @@ from psycopg2.extras import Json
 
 from database import get_db, managed_cursor
 
-SEARCH_TTL_SECONDS = 15 * 60
-MOVIE_TTL_SECONDS = 6 * 60 * 60
-TV_TTL_SECONDS = 3 * 60 * 60
-SEASON_TTL_SECONDS = 6 * 60 * 60
-LIST_TTL_SECONDS = 10 * 60
-WATCH_PROVIDERS_TTL_SECONDS = 6 * 60 * 60
+def _env_int(name, default):
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    if value <= 0:
+        return default
+    return value
+
+
+SEARCH_TTL_SECONDS = _env_int("TMDB_CACHE_TTL_SEARCH_SECONDS", 6 * 60 * 60)
+LIST_TTL_SECONDS = _env_int("TMDB_CACHE_TTL_LIST_SECONDS", 24 * 60 * 60)
+MOVIE_TTL_SECONDS = _env_int("TMDB_CACHE_TTL_MOVIE_SECONDS", 7 * 24 * 60 * 60)
+TV_TTL_SECONDS = _env_int("TMDB_CACHE_TTL_TV_SECONDS", 24 * 60 * 60)
+SEASON_TTL_SECONDS = _env_int("TMDB_CACHE_TTL_SEASON_SECONDS", 24 * 60 * 60)
+WATCH_PROVIDERS_TTL_SECONDS = _env_int("TMDB_CACHE_TTL_WATCH_SECONDS", 24 * 60 * 60)
 
 _memory_cache = {}
 
