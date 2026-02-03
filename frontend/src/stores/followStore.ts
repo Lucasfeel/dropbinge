@@ -17,6 +17,7 @@ export type FollowItem = {
   serverId?: number;
   dropEnabled: boolean;
   bingeEnabled: boolean;
+  isCompleted?: boolean;
 };
 
 const STORAGE_KEY = "db_guest_follows_v2";
@@ -40,7 +41,22 @@ const ensureRoleFlags = (item: FollowItem): FollowItem => {
     ...item,
     dropEnabled: item.dropEnabled ?? defaults.dropEnabled,
     bingeEnabled: item.bingeEnabled ?? defaults.bingeEnabled,
+    isCompleted: item.isCompleted ?? false,
   };
+};
+
+const isIsoDate = (value: unknown): value is string =>
+  typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+
+const getTodayIso = () => new Date().toISOString().split("T")[0];
+
+const isOnOrBeforeToday = (value: unknown, today: string) =>
+  isIsoDate(value) && value <= today;
+
+const isSeasonCompleted = (episodes: Array<{ air_date?: string | null }>, today: string) => {
+  const dates = episodes.map((episode) => episode.air_date).filter(isIsoDate);
+  if (dates.length === 0) return false;
+  return !dates.some((airDate) => airDate > today);
 };
 
 const readGuestFollows = (): FollowItem[] => {
@@ -96,6 +112,16 @@ const buildItemFromDetails = (
   const metaDate = typeof seasonNumber === "number" ? seasonDate : date;
   const tbd = !metaDate;
   const resolvedRoles = roles ?? getDefaultRoles(mediaType);
+  const today = getTodayIso();
+  let isCompleted = false;
+  if (mediaType === "movie") {
+    isCompleted =
+      details?.status === "Released" || isOnOrBeforeToday(details?.release_date, today);
+  } else if (typeof seasonNumber === "number") {
+    isCompleted = isSeasonCompleted(details?.episodes || [], today);
+  } else {
+    isCompleted = ["Ended", "Canceled"].includes(details?.status);
+  }
   return {
     key: buildKey(mediaType, tmdbId, seasonNumber),
     mediaType,
@@ -108,6 +134,7 @@ const buildItemFromDetails = (
     dropEnabled: resolvedRoles.dropEnabled,
     bingeEnabled: resolvedRoles.bingeEnabled,
     targetType,
+    isCompleted,
   };
 };
 
@@ -132,6 +159,21 @@ const buildItemFromServer = (follow: Follow): FollowItem => {
       : follow.target_type === "tv_season"
         ? follow.notify_season_binge_ready
         : false;
+  const status = follow.status_raw ?? (follow.cache_payload as { status?: string } | undefined)?.status;
+  const today = getTodayIso();
+  let isCompleted = false;
+  if (follow.target_type === "movie") {
+    isCompleted =
+      status === "Released" || isOnOrBeforeToday(follow.release_date, today);
+  } else if (follow.target_type === "tv_full") {
+    isCompleted = status === "Ended" || status === "Canceled";
+  } else if (follow.target_type === "tv_season") {
+    const episodes = (follow.cache_payload as { episodes?: Array<{ air_date?: string | null }> })
+      ?.episodes;
+    if (episodes) {
+      isCompleted = isSeasonCompleted(episodes, today);
+    }
+  }
   return {
     key: buildKey(mediaType, follow.tmdb_id, seasonNumber),
     mediaType,
@@ -145,6 +187,7 @@ const buildItemFromServer = (follow: Follow): FollowItem => {
     serverId: follow.id,
     dropEnabled,
     bingeEnabled,
+    isCompleted,
   };
 };
 
@@ -228,6 +271,7 @@ export const followStore = {
           seasonNumber: input.seasonNumber,
           targetType: resolveTargetType(input),
           ...getDefaultRoles(input.mediaType),
+          isCompleted: false,
         };
         writeGuestFollows([fallback, ...items]);
         return fallback;
@@ -335,6 +379,7 @@ export const followStore = {
           seasonNumber,
           targetType,
           ...nextRoles,
+          isCompleted: false,
         };
         writeGuestFollows([fallback, ...items]);
       }
@@ -386,12 +431,17 @@ export const followStore = {
     const items = readGuestFollows();
     try {
       const details = await hydrateFromDetails(item.mediaType, item.tmdbId, item.seasonNumber);
-      const nextItem = buildItemFromDetails(
-        item.mediaType,
-        item.tmdbId,
-        details,
-        item.seasonNumber,
-      );
+        const nextItem = buildItemFromDetails(
+          item.mediaType,
+          item.tmdbId,
+          details,
+          item.seasonNumber,
+          {
+            dropEnabled: item.dropEnabled ?? getDefaultRoles(item.mediaType).dropEnabled,
+            bingeEnabled: item.bingeEnabled ?? getDefaultRoles(item.mediaType).bingeEnabled,
+          },
+          item.targetType,
+        );
       const next = items.map((entry) => (entry.key === item.key ? nextItem : entry));
       writeGuestFollows(next);
       return nextItem;

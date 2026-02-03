@@ -11,13 +11,22 @@ type PosterCardProps = {
   posterPath: string | null;
   to?: string;
   action?: ReactNode;
+  isCompleted?: boolean;
 };
 
-export const PosterCard = ({ title, subtitle, posterPath, to, action }: PosterCardProps) => {
+export const PosterCard = ({
+  title,
+  subtitle,
+  posterPath,
+  to,
+  action,
+  isCompleted,
+}: PosterCardProps) => {
   const posterUrl = getPosterUrl(posterPath);
   return (
     <div className="poster-tile">
       <div className="poster-tile-media">
+        {isCompleted ? <div className="poster-completed-badge">COMPLETED</div> : null}
         {to ? (
           <Link to={to} className="poster-tile-link" aria-label={title}>
             {posterUrl ? (

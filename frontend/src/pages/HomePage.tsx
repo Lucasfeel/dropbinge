@@ -77,6 +77,7 @@ export const HomePage = () => {
         date: item.meta?.date || null,
         vote_average: null,
         vote_count: null,
+        is_completed: item.isCompleted ? true : undefined,
       })),
     [followItems],
   );

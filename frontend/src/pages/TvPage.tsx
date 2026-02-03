@@ -45,6 +45,7 @@ export const TvPage = () => {
           vote_count: null,
           season_number: item.seasonNumber ?? undefined,
           series_id: item.tmdbId,
+          is_completed: item.isCompleted ? true : undefined,
         })),
     [items],
   );

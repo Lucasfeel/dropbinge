@@ -18,13 +18,21 @@ def test_list_tv_seasons_thread_context_uses_memory_cache(client, monkeypatch):
         return {
             "id": tv_id,
             "name": f"Show {tv_id}",
+            "next_episode_to_air": {"season_number": 2, "air_date": "2099-01-01"},
+            "last_episode_to_air": {"season_number": 1, "air_date": "2020-01-01"},
             "seasons": [
                 {
                     "season_number": 1,
                     "air_date": "2020-01-01",
                     "name": "S1",
                     "poster_path": "/p.jpg",
-                }
+                },
+                {
+                    "season_number": 2,
+                    "air_date": "2099-01-01",
+                    "name": "S2",
+                    "poster_path": "/p2.jpg",
+                },
             ],
         }
 
@@ -38,3 +46,6 @@ def test_list_tv_seasons_thread_context_uses_memory_cache(client, monkeypatch):
     assert "results" in body
     assert len(body["results"]) >= 1
     assert body["page"] == 2
+    assert all(item["season_number"] == 2 for item in body["results"])
+    series_ids = [item["series_id"] for item in body["results"]]
+    assert len(series_ids) == len(set(series_ids))
