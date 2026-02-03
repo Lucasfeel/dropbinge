@@ -95,7 +95,6 @@ export const SearchOverlay = ({ open, query, onQueryChange, onClose }: SearchOve
                 key={`${result.media_type}-${result.id}`}
                 item={result}
                 mediaType={mediaType}
-                showAction={false}
                 onSelect={() => {
                   addRecentSearch({
                     key: `${result.media_type}:${result.id}`,

@@ -50,6 +50,7 @@ export const DetailsPage = () => {
   const title = details?.title || details?.name || "Unknown title";
   const date = details?.release_date || details?.first_air_date || null;
   const following = isFollowing(followKeyValue);
+  const followLabel = type === "tv" ? "Track series" : "Track";
 
   const seasons = useMemo(() => details?.seasons || [], [details]);
 
@@ -85,7 +86,7 @@ export const DetailsPage = () => {
                 }
               }}
             >
-              {following ? "Following" : "Follow"}
+              {following ? "Tracking" : followLabel}
             </button>
             <button className="button ghost" onClick={() => navigate(-1)}>
               Back

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { fetchTrendingAllDay } from "../api/tmdbLists";
@@ -6,13 +6,13 @@ import { HorizontalRail } from "../components/HorizontalRail";
 import { GridSkeleton } from "../components/GridSkeleton";
 import { PosterGridCard } from "../components/PosterGridCard";
 import { SectionHeader } from "../components/SectionHeader";
-import { followKey, useFollowStore } from "../stores/followStore";
+import { useFollowStore } from "../stores/followStore";
 import type { TitleSummary } from "../types";
 import { getRecentSearches } from "../utils/searchHistory";
 
 export const HomePage = () => {
   const navigate = useNavigate();
-  const { items: followItems, addFollow, removeFollow, isFollowing } = useFollowStore();
+  const { items: followItems } = useFollowStore();
   const [trendItems, setTrendItems] = useState<TitleSummary[]>([]);
   const [trendLoading, setTrendLoading] = useState(true);
   const [recentSearches, setRecentSearches] = useState(getRecentSearches());
@@ -81,23 +81,6 @@ export const HomePage = () => {
     [followItems],
   );
 
-  const getFollowState = useCallback(
-    (id: number, mediaType: "movie" | "tv") => isFollowing(followKey(mediaType, id)),
-    [isFollowing],
-  );
-
-  const handleToggleFollow = useCallback(
-    async (item: TitleSummary, mediaType: "movie" | "tv") => {
-      const key = followKey(mediaType, item.id);
-      if (isFollowing(key)) {
-        await removeFollow(key);
-        return;
-      }
-      await addFollow({ mediaType, tmdbId: item.id });
-    },
-    [addFollow, isFollowing, removeFollow],
-  );
-
   return (
     <div className="page home-page">
       <SectionHeader title="Today’s Trend" subtitle="Top picks to start your night." />
@@ -112,8 +95,6 @@ export const HomePage = () => {
                 key={`${mediaType}-${item.id}`}
                 item={item}
                 mediaType={mediaType}
-                isFollowed={getFollowState(item.id, mediaType)}
-                onToggleFollow={(target) => handleToggleFollow(target, mediaType)}
               />
             );
           })}
@@ -142,8 +123,6 @@ export const HomePage = () => {
               key={`${item.media_type}-${item.id}`}
               item={item}
               mediaType={item.media_type}
-              isFollowed={getFollowState(item.id, item.media_type)}
-              onToggleFollow={(target) => handleToggleFollow(target, item.media_type)}
             />
           ))}
         </HorizontalRail>
@@ -159,8 +138,6 @@ export const HomePage = () => {
               key={`${item.media_type}-${item.id}`}
               item={item}
               mediaType={item.media_type}
-              isFollowed={getFollowState(item.id, item.media_type)}
-              onToggleFollow={(target) => handleToggleFollow(target, item.media_type)}
             />
           ))}
         </HorizontalRail>

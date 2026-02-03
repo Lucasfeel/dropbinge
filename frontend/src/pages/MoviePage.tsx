@@ -7,7 +7,7 @@ import { PosterGrid } from "../components/PosterGrid";
 import { SectionHeader } from "../components/SectionHeader";
 import { fetchMovieCompleted, fetchMoviePopular, fetchMovieUpcoming } from "../api/tmdbLists";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
-import { followKey, useFollowStore } from "../stores/followStore";
+import { useFollowStore } from "../stores/followStore";
 import type { TitleSummary } from "../types";
 
 const FILTERS = [
@@ -19,7 +19,7 @@ const DEFAULT_FILTER = "popular";
 const FILTER_KEYS = new Set(FILTERS.map((item) => item.key));
 
 export const MoviePage = () => {
-  const { items, addFollow, removeFollow, isFollowing } = useFollowStore();
+  const { items } = useFollowStore();
   const [params, setParams] = useSearchParams();
   const rawFilter = params.get("filter");
   const filter = rawFilter && FILTER_KEYS.has(rawFilter) ? rawFilter : DEFAULT_FILTER;
@@ -90,23 +90,6 @@ export const MoviePage = () => {
     return [...browseItems].sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0));
   }, [browseItems, sort]);
 
-  const getFollowState = useCallback(
-    (item: TitleSummary) => isFollowing(followKey("movie", item.id)),
-    [isFollowing],
-  );
-
-  const handleToggleFollow = useCallback(
-    async (item: TitleSummary) => {
-      const key = followKey("movie", item.id);
-      if (isFollowing(key)) {
-        await removeFollow(key);
-        return;
-      }
-      await addFollow({ mediaType: "movie", tmdbId: item.id });
-    },
-    [addFollow, isFollowing, removeFollow],
-  );
-
   const hasMore = totalPages ? browsePage < totalPages : true;
   const isLoadingMore = loading && browseItems.length > 0;
   const loadMore = useCallback(() => {
@@ -150,12 +133,7 @@ export const MoviePage = () => {
       {trackedItems.length > 0 ? (
         <>
           <SectionHeader title="My tracked" subtitle="Your saved movie watchlist." />
-          <PosterGrid
-            items={trackedItems}
-            mediaType="movie"
-            onToggleFollow={handleToggleFollow}
-            getFollowState={getFollowState}
-          />
+          <PosterGrid items={trackedItems} mediaType="movie" />
         </>
       ) : (
         <>
@@ -176,12 +154,7 @@ export const MoviePage = () => {
       {loading && browseItems.length === 0 ? (
         <GridSkeleton count={8} />
       ) : (
-        <PosterGrid
-          items={sortedBrowse}
-          mediaType="movie"
-          onToggleFollow={handleToggleFollow}
-          getFollowState={getFollowState}
-        />
+        <PosterGrid items={sortedBrowse} mediaType="movie" />
       )}
       {isLoadingMore ? <GridSkeleton count={4} /> : null}
       <div ref={sentinelRef} style={{ height: 1 }} />

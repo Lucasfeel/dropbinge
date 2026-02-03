@@ -104,6 +104,27 @@ def _list_endpoint(path, fetcher, media_type, params):
         return _tmdb_error_response("tmdb_upstream_error", "TMDB request failed")
 
 
+def _get_tv_details_cached(tv_id):
+    cache_key = tmdb_http_cache.make_cache_key("http:tv_detail", tmdb_id=tv_id)
+    cached = tmdb_http_cache.get_cached(None, *cache_key)
+    if cached is not None:
+        _log_cache("tv_detail", "HIT", 0)
+        return cached
+    start = time.perf_counter()
+    payload = tmdb_client.get_tv_details(tv_id)
+    latency_ms = int((time.perf_counter() - start) * 1000)
+    tmdb_http_cache.set_cached(
+        None,
+        cache_key[0],
+        cache_key[1],
+        cache_key[2],
+        payload,
+        tmdb_http_cache.TV_TTL_SECONDS,
+    )
+    _log_cache("tv_detail", "MISS", latency_ms)
+    return payload
+
+
 @tmdb_bp.get("/search")
 def search():
     query = (request.args.get("q") or "").strip()
@@ -308,6 +329,104 @@ def list_trending_all_day():
     language = request.args.get("language")
     params = {"page": page, "language": language}
     return _list_endpoint("/trending/all/day", tmdb_client.list_trending_all_day, None, params)
+
+
+@tmdb_bp.get("/list/tv/seasons")
+def list_tv_seasons():
+    page = _get_page_param()
+    if page is None:
+        return _json_response({"error": "Invalid page"}, status=400, cache_status="MISS")
+    list_key = request.args.get("list", "on-the-air")
+    if list_key not in {"on-the-air", "popular", "completed"}:
+        list_key = "on-the-air"
+    language = request.args.get("language")
+    cache_key = tmdb_http_cache.make_cache_key(
+        "http:tv_seasons_list",
+        query_key=f"list={list_key}&page={page}&language={language or ''}",
+    )
+    try:
+        cached = tmdb_http_cache.get_cached(None, *cache_key)
+        if cached is not None:
+            _log_cache("tv_seasons_list", "HIT", 0)
+            return _json_response(cached, cache_status="HIT")
+        if list_key == "popular":
+            base_payload = tmdb_client.list_tv_popular(page=page, language=language)
+        elif list_key == "completed":
+            base_payload = tmdb_client.discover_tv(
+                {"page": page, "sort_by": "popularity.desc", "with_status": 3}
+            )
+        else:
+            base_payload = tmdb_client.list_tv_on_the_air(page=page, language=language)
+        base_results = base_payload.get("results") or []
+        season_items = []
+        from concurrent.futures import ThreadPoolExecutor
+
+        def load_details(item):
+            tv_id = item.get("id")
+            if not tv_id:
+                return None
+            try:
+                return _get_tv_details_cached(tv_id)
+            except tmdb_client.TMDBError:
+                return None
+
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            detail_results = list(executor.map(load_details, base_results))
+
+        for item, details in zip(base_results, detail_results):
+            if not details:
+                continue
+            series_id = details.get("id") or item.get("id")
+            series_name = details.get("name") or item.get("name") or f"TMDB {series_id}"
+            for season in details.get("seasons") or []:
+                season_number = season.get("season_number")
+                if season_number is None:
+                    continue
+                season_id = season.get("id") or abs(
+                    tmdb_http_cache.stable_bigint_hash(f"tv:{series_id}:season:{season_number}")
+                )
+                season_items.append(
+                    {
+                        "id": season_id,
+                        "media_type": "tv",
+                        "title": series_name,
+                        "poster_path": season.get("poster_path") or item.get("poster_path"),
+                        "backdrop_path": item.get("backdrop_path"),
+                        "date": season.get("air_date"),
+                        "vote_average": item.get("vote_average"),
+                        "vote_count": item.get("vote_count"),
+                        "is_completed": list_key == "completed",
+                        "season_number": season_number,
+                        "season_name": season.get("name"),
+                        "series_id": series_id,
+                        "series_name": series_name,
+                    }
+                )
+        response = {
+            "page": base_payload.get("page", page),
+            "total_pages": base_payload.get("total_pages", 1),
+            "results": season_items,
+        }
+        tmdb_http_cache.set_cached(
+            None,
+            cache_key[0],
+            cache_key[1],
+            cache_key[2],
+            response,
+            tmdb_http_cache.LIST_TTL_SECONDS,
+        )
+        _log_cache("tv_seasons_list", "MISS", 0)
+        return _json_response(response, cache_status="MISS")
+    except tmdb_client.TMDBConfigError:
+        return _tmdb_error_response(
+            "tmdb_not_configured", "TMDB credentials are not configured"
+        )
+    except tmdb_client.TMDBAuthError:
+        return _tmdb_error_response("tmdb_auth_error", "TMDB authentication failed")
+    except tmdb_client.TMDBRateLimitError:
+        return _tmdb_error_response("tmdb_rate_limited", "TMDB rate limit exceeded")
+    except (tmdb_client.TMDBUpstreamError, tmdb_client.TMDBRequestError):
+        return _tmdb_error_response("tmdb_upstream_error", "TMDB request failed")
 
 
 @tmdb_bp.get("/list/movie/completed")
