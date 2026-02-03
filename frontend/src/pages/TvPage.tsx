@@ -12,6 +12,7 @@ import type { TitleSummary } from "../types";
 
 const FILTERS = [
   { key: "on-the-air", label: "On The Air" },
+  { key: "upcoming", label: "Upcoming" },
   { key: "completed", label: "Completed" },
 ];
 const DEFAULT_FILTER = "on-the-air";
@@ -54,10 +55,24 @@ export const TvPage = () => {
       setError(null);
       setLoading(true);
       try {
-        const response = await fetchTvSeasons(nextPage, filter);
+        const apiList = (filter === "upcoming" ? "popular" : filter) as
+          | "on-the-air"
+          | "popular"
+          | "completed";
+        const response = await fetchTvSeasons(nextPage, apiList);
         setBrowsePage(response.page);
         setTotalPages(response.total_pages);
-        setBrowseItems((prev) => (replace ? response.results : [...prev, ...response.results]));
+        const todayMidnight = new Date();
+        todayMidnight.setHours(0, 0, 0, 0);
+        const results =
+          filter === "upcoming"
+            ? response.results.filter((item) => {
+                if (item.is_completed === true) return false;
+                const ts = Date.parse(item.date ?? "");
+                return Number.isFinite(ts) && ts > todayMidnight.getTime();
+              })
+            : response.results;
+        setBrowseItems((prev) => (replace ? results : [...prev, ...results]));
       } catch (err) {
         setError("Unable to load browse results. Please try again.");
       } finally {
