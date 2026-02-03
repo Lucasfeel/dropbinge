@@ -172,6 +172,43 @@ def _enrich_tv_results_with_completion(payload):
     return payload
 
 
+def _enrich_mixed_results_with_tv_completion(payload):
+    results = payload.get("results") or []
+    if not results:
+        return payload
+    candidates = [
+        item
+        for item in results
+        if isinstance(item, dict)
+        and item.get("id")
+        and item.get("media_type") == "tv"
+        and "is_completed" not in item
+    ]
+    if not candidates:
+        return payload
+
+    def load_details(item):
+        tv_id = item.get("id")
+        if not tv_id:
+            return None
+        try:
+            return _get_tv_details_cached(tv_id)
+        except Exception:
+            logger.exception("trending details worker failed tv_id=%s", tv_id)
+            return None
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        detail_results = list(executor.map(load_details, candidates))
+
+    for item, details in zip(candidates, detail_results):
+        if not details:
+            continue
+        status = details.get("status")
+        if status in {"Ended", "Canceled"}:
+            item["is_completed"] = True
+    return payload
+
+
 @tmdb_bp.get("/search")
 def search():
     query = (request.args.get("q") or "").strip()
@@ -439,7 +476,11 @@ def list_trending_all_day():
         return _json_response({"error": "Invalid page"}, status=400, cache_status="MISS")
     language = request.args.get("language")
     params = {"page": page, "language": language}
-    return _list_endpoint("/trending/all/day", tmdb_client.list_trending_all_day, None, params)
+    def fetcher(**kwargs):
+        payload = tmdb_client.list_trending_all_day(**kwargs)
+        return _enrich_mixed_results_with_tv_completion(payload)
+
+    return _list_endpoint("/trending/all/day", fetcher, None, params)
 
 
 @tmdb_bp.get("/list/tv/seasons")

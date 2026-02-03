@@ -23,8 +23,26 @@ export const HomePage = () => {
       setTrendLoading(true);
       try {
         const response = await fetchTrendingAllDay(1);
+        let secondPageResults: TitleSummary[] = [];
+        try {
+          const secondResponse = await fetchTrendingAllDay(2);
+          secondPageResults = secondResponse.results;
+        } catch (pageError) {
+          secondPageResults = [];
+        }
         if (!active) return;
-        setTrendItems(response.results.slice(0, 12));
+        const combinedResults = [...response.results, ...secondPageResults];
+        const seen = new Set<string>();
+        const filtered: TitleSummary[] = [];
+        for (const item of combinedResults) {
+          const key = `${item.media_type}-${item.id}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          if (item.is_completed) continue;
+          filtered.push(item);
+          if (filtered.length >= 12) break;
+        }
+        setTrendItems(filtered);
       } catch (error) {
         if (active) {
           setTrendItems([]);
@@ -51,7 +69,6 @@ export const HomePage = () => {
     };
   }, []);
 
-  const trendList = useMemo(() => trendItems.slice(0, 12), [trendItems]);
   const recentItems = useMemo<TitleSummary[]>(
     () =>
       recentSearches.map((item) => ({
@@ -89,7 +106,7 @@ export const HomePage = () => {
         <GridSkeleton count={12} />
       ) : (
         <div className="poster-grid">
-          {trendList.map((item) => {
+          {trendItems.map((item) => {
             const mediaType = item.media_type === "tv" ? "tv" : "movie";
             return (
               <PosterGridCard
