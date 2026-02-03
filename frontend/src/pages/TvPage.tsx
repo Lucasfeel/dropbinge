@@ -61,7 +61,17 @@ export const TvPage = () => {
         );
         setBrowsePage(response.page);
         setTotalPages(response.total_pages);
-        setBrowseItems((prev) => (replace ? response.results : [...prev, ...response.results]));
+        const todayMidnight = new Date();
+        todayMidnight.setHours(0, 0, 0, 0);
+        const results =
+          filter === "upcoming"
+            ? response.results.filter((item) => {
+                if (item.is_completed === true) return false;
+                const ts = Date.parse(item.date ?? "");
+                return Number.isFinite(ts) && ts > todayMidnight.getTime();
+              })
+            : response.results;
+        setBrowseItems((prev) => (replace ? results : [...prev, ...results]));
       } catch (err) {
         setError("Unable to load browse results. Please try again.");
       } finally {
