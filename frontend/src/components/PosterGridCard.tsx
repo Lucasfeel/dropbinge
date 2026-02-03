@@ -58,6 +58,7 @@ export const PosterGridCard = ({
   return (
     <div className="poster-tile">
       <div className="poster-tile-media">
+        {item.is_completed ? <span className="poster-completed-badge">COMPLETED</span> : null}
         <Link to={link} className="poster-tile-link" aria-label={item.title} onClick={handleSelect}>
           {posterUrl ? (
             <img src={posterUrl} alt={item.title} loading="lazy" />

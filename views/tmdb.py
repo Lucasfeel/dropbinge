@@ -1,5 +1,6 @@
 import logging
 import time
+from datetime import date
 from urllib.parse import urlencode
 
 from flask import Blueprint, jsonify, request
@@ -40,6 +41,7 @@ def _normalized_title(item, media_type):
         "date": date,
         "vote_average": item.get("vote_average"),
         "vote_count": item.get("vote_count"),
+        "is_completed": item.get("is_completed"),
     }
 
 
@@ -53,6 +55,14 @@ def _normalize_list_payload(payload, media_type):
         "total_pages": payload.get("total_pages", 1),
         "results": normalized,
     }
+
+
+def _mark_completed_results(payload):
+    results = payload.get("results") or []
+    for item in results:
+        if isinstance(item, dict):
+            item["is_completed"] = True
+    return payload
 
 
 def _list_cache_key(path, params):
@@ -298,3 +308,58 @@ def list_trending_all_day():
     language = request.args.get("language")
     params = {"page": page, "language": language}
     return _list_endpoint("/trending/all/day", tmdb_client.list_trending_all_day, None, params)
+
+
+@tmdb_bp.get("/list/movie/completed")
+def list_movie_completed():
+    page = _get_page_param()
+    if page is None:
+        return _json_response({"error": "Invalid page"}, status=400, cache_status="MISS")
+    today = date.today().isoformat()
+    params = {
+        "page": page,
+        "sort_by": "popularity.desc",
+        "primary_release_date.lte": today,
+    }
+
+    def fetcher(**kwargs):
+        payload = tmdb_client.discover_movies(kwargs)
+        return _mark_completed_results(payload)
+
+    return _list_endpoint("/movie/completed", fetcher, "movie", params)
+
+
+@tmdb_bp.get("/list/tv/completed")
+def list_tv_completed():
+    page = _get_page_param()
+    if page is None:
+        return _json_response({"error": "Invalid page"}, status=400, cache_status="MISS")
+    params = {
+        "page": page,
+        "sort_by": "popularity.desc",
+        "with_status": 3,
+    }
+
+    def fetcher(**kwargs):
+        payload = tmdb_client.discover_tv(kwargs)
+        return _mark_completed_results(payload)
+
+    return _list_endpoint("/tv/completed", fetcher, "tv", params)
+
+
+@tmdb_bp.get("/list/series/completed")
+def list_series_completed():
+    page = _get_page_param()
+    if page is None:
+        return _json_response({"error": "Invalid page"}, status=400, cache_status="MISS")
+    params = {
+        "page": page,
+        "sort_by": "popularity.desc",
+        "with_status": 3,
+    }
+
+    def fetcher(**kwargs):
+        payload = tmdb_client.discover_tv(kwargs)
+        return _mark_completed_results(payload)
+
+    return _list_endpoint("/series/completed", fetcher, "tv", params)

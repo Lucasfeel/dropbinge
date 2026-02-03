@@ -5,7 +5,7 @@ import { ChipFilterRow } from "../components/ChipFilterRow";
 import { GridSkeleton } from "../components/GridSkeleton";
 import { PosterGrid } from "../components/PosterGrid";
 import { SectionHeader } from "../components/SectionHeader";
-import { fetchMoviePopular, fetchMovieUpcoming } from "../api/tmdbLists";
+import { fetchMovieCompleted, fetchMoviePopular, fetchMovieUpcoming } from "../api/tmdbLists";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 import { followKey, useFollowStore } from "../stores/followStore";
 import type { TitleSummary } from "../types";
@@ -13,13 +13,16 @@ import type { TitleSummary } from "../types";
 const FILTERS = [
   { key: "popular", label: "Popular" },
   { key: "upcoming", label: "Upcoming" },
-  { key: "tracked", label: "My Tracked" },
+  { key: "completed", label: "Completed" },
 ];
+const DEFAULT_FILTER = "popular";
+const FILTER_KEYS = new Set(FILTERS.map((item) => item.key));
 
 export const MoviePage = () => {
   const { items, addFollow, removeFollow, isFollowing } = useFollowStore();
   const [params, setParams] = useSearchParams();
-  const filter = params.get("filter") || "popular";
+  const rawFilter = params.get("filter");
+  const filter = rawFilter && FILTER_KEYS.has(rawFilter) ? rawFilter : DEFAULT_FILTER;
   const sort = params.get("sort") || "popularity";
   const [browseItems, setBrowseItems] = useState<TitleSummary[]>([]);
   const [browsePage, setBrowsePage] = useState(1);
@@ -46,6 +49,7 @@ export const MoviePage = () => {
 
   const fetcher = useMemo(() => {
     if (filter === "upcoming") return fetchMovieUpcoming;
+    if (filter === "completed") return fetchMovieCompleted;
     return fetchMoviePopular;
   }, [filter]);
 
@@ -68,25 +72,18 @@ export const MoviePage = () => {
   );
 
   useEffect(() => {
-    if (filter === "tracked") {
-      setBrowseItems(trackedItems);
-      setBrowsePage(1);
-      setTotalPages(null);
-      setError(null);
-      return;
+    if (rawFilter && rawFilter !== filter) {
+      setParams({ filter: DEFAULT_FILTER, sort }, { replace: true });
     }
+  }, [filter, rawFilter, setParams, sort]);
+
+  useEffect(() => {
     setBrowseItems([]);
     setBrowsePage(1);
     setTotalPages(null);
     setError(null);
     loadBrowse(1, true);
-  }, [filter, loadBrowse, trackedItems]);
-
-  useEffect(() => {
-    if (filter === "tracked") {
-      setBrowseItems(trackedItems);
-    }
-  }, [filter, trackedItems]);
+  }, [filter, loadBrowse]);
 
   const sortedBrowse = useMemo(() => {
     if (sort !== "rating") return browseItems;
@@ -110,12 +107,12 @@ export const MoviePage = () => {
     [addFollow, isFollowing, removeFollow],
   );
 
-  const hasMore = filter !== "tracked" && (totalPages ? browsePage < totalPages : true);
+  const hasMore = totalPages ? browsePage < totalPages : true;
   const isLoadingMore = loading && browseItems.length > 0;
   const loadMore = useCallback(() => {
-    if (!hasMore || loading || filter === "tracked") return;
+    if (!hasMore || loading) return;
     loadBrowse(browsePage + 1, false);
-  }, [browsePage, filter, hasMore, loadBrowse, loading]);
+  }, [browsePage, hasMore, loadBrowse, loading]);
   const sentinelRef = useInfiniteScroll({ onLoadMore: loadMore, hasMore, loading });
 
   return (
