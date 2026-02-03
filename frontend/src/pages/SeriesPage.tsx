@@ -5,13 +5,14 @@ import { ChipFilterRow } from "../components/ChipFilterRow";
 import { GridSkeleton } from "../components/GridSkeleton";
 import { PosterGrid } from "../components/PosterGrid";
 import { SectionHeader } from "../components/SectionHeader";
-import { fetchTvCompleted, fetchTvPopular } from "../api/tmdbLists";
+import { fetchTvCompleted, fetchTvOnTheAir, fetchTvPopular } from "../api/tmdbLists";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 import { useFollowStore } from "../stores/followStore";
 import type { TitleSummary } from "../types";
 
 const FILTERS = [
   { key: "top-rated", label: "Top Rated" },
+  { key: "on-the-air", label: "On The Air" },
   { key: "completed", label: "Completed" },
 ];
 const DEFAULT_FILTER = "top-rated";
@@ -50,6 +51,7 @@ export const SeriesPage = () => {
 
   const fetcher = useMemo(() => {
     if (filter === "completed") return fetchTvCompleted;
+    if (filter === "on-the-air") return fetchTvOnTheAir;
     return fetchTvPopular;
   }, [filter]);
 
@@ -85,9 +87,20 @@ export const SeriesPage = () => {
     loadBrowse(1, true);
   }, [filter, loadBrowse]);
 
+  const toTimestamp = (value?: string | null) => {
+    if (!value) return 0;
+    const ts = Date.parse(value);
+    return Number.isFinite(ts) ? ts : 0;
+  };
+
   const sortedBrowse = useMemo(() => {
-    if (sort !== "rating") return browseItems;
-    return [...browseItems].sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0));
+    if (sort === "rating") {
+      return [...browseItems].sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0));
+    }
+    if (sort === "latest") {
+      return [...browseItems].sort((a, b) => toTimestamp(b.date) - toTimestamp(a.date));
+    }
+    return browseItems;
   }, [browseItems, sort]);
 
   const hasMore = !error && (totalPages ? browsePage < totalPages : true);
@@ -129,6 +142,7 @@ export const SeriesPage = () => {
           >
             <option value="popularity">Popularity</option>
             <option value="rating">Rating</option>
+            <option value="latest">Latest</option>
           </select>
         </div>
       </div>
