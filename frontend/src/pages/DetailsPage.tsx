@@ -7,6 +7,7 @@ import { SectionHeader } from "../components/SectionHeader";
 import { followKey, useFollowStore } from "../stores/followStore";
 
 const IMG_BASE = "https://image.tmdb.org/t/p/w500";
+const todayIso = () => new Date().toISOString().split("T")[0];
 
 export const DetailsPage = () => {
   const navigate = useNavigate();
@@ -85,8 +86,28 @@ export const DetailsPage = () => {
   const followItem = getItemByKey(followKeyValue);
   const dropEnabled = followItem?.dropEnabled ?? false;
   const bingeEnabled = followItem?.bingeEnabled ?? false;
+  const status = details?.status;
+  const isMovieCompleted =
+    type === "movie" &&
+    (status === "Released" || (details?.release_date && details.release_date <= todayIso()));
+  const isTvCompleted = type === "tv" && (status === "Ended" || status === "Canceled");
+  const isCompleted = type === "movie" ? isMovieCompleted : isTvCompleted;
+  const canRemove = dropEnabled || bingeEnabled;
 
   const seasons = useMemo(() => details?.seasons || [], [details]);
+  const nextSeasonNumber = details?.next_episode_to_air?.season_number;
+  const lastSeasonNumber = details?.last_episode_to_air?.season_number;
+  const resolveSeasonCompleted = (seasonNumber: number) => {
+    if (seasonNumber === 0) return false;
+    if (status === "Ended" || status === "Canceled") return true;
+    if (typeof nextSeasonNumber === "number") {
+      return seasonNumber < nextSeasonNumber;
+    }
+    if (typeof lastSeasonNumber === "number") {
+      return seasonNumber < lastSeasonNumber;
+    }
+    return false;
+  };
   const providerImageBase = "https://image.tmdb.org/t/p/w92";
   const providerGroups = useMemo(() => {
     if (!providers) return [];
@@ -119,13 +140,14 @@ export const DetailsPage = () => {
     <div className="page">
       <div className="detail-hero">
         <div className="detail-poster">
+          {isCompleted ? <div className="poster-completed-badge">COMPLETED</div> : null}
           {posterUrl ? <img src={posterUrl} alt={title} /> : <div className="poster-fallback" />}
         </div>
         <div className="detail-info">
           <h1>{title}</h1>
           <p className="muted">{date || "TBD"}</p>
           <div className="detail-actions">
-            {type === "movie" ? (
+            {isCompleted ? null : type === "movie" ? (
               <button
                 className={dropEnabled ? "button secondary" : "button"}
                 disabled={rolePending}
@@ -178,6 +200,29 @@ export const DetailsPage = () => {
                 </button>
               </>
             )}
+            {isCompleted && canRemove ? (
+              <button
+                className="button secondary"
+                disabled={rolePending}
+                onClick={async () => {
+                  setRolePending(true);
+                  try {
+                    if (type === "movie") {
+                      await setRoles({ mediaType: "movie", tmdbId: id }, { drop: false });
+                    } else {
+                      await setRoles(
+                        { mediaType: "tv", tmdbId: id, targetType: "tv_full" },
+                        { drop: false, binge: false },
+                      );
+                    }
+                  } finally {
+                    setRolePending(false);
+                  }
+                }}
+              >
+                Remove
+              </button>
+            ) : null}
             <button className="button ghost" onClick={() => navigate(-1)}>
               Back
             </button>
@@ -189,15 +234,21 @@ export const DetailsPage = () => {
         <>
           <SectionHeader title="Seasons" subtitle="Season premieres and binge-ready dates." />
           <div className="season-grid">
-            {seasons.map((season: any) => (
-              <PosterCard
-                key={season.id}
-                title={season.name || `Season ${season.season_number}`}
-                subtitle={season.air_date || "TBD"}
-                posterPath={season.poster_path}
-                to={`/title/tv/${id}/season/${season.season_number}`}
-              />
-            ))}
+            {seasons.map((season: any) => {
+              const seasonNumber = season.season_number;
+              const completed =
+                typeof seasonNumber === "number" ? resolveSeasonCompleted(seasonNumber) : false;
+              return (
+                <PosterCard
+                  key={season.id}
+                  title={season.name || `Season ${seasonNumber}`}
+                  subtitle={season.air_date || "TBD"}
+                  posterPath={season.poster_path}
+                  to={`/title/tv/${id}/season/${seasonNumber}`}
+                  isCompleted={completed}
+                />
+              );
+            })}
           </div>
         </>
       )}
