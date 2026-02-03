@@ -5,18 +5,22 @@ import { apiFetch } from "../api";
 import { followKey, useFollowStore } from "../stores/followStore";
 
 const IMG_BASE = "https://image.tmdb.org/t/p/w500";
+const todayIso = () => new Date().toISOString().split("T")[0];
 
 export const SeasonDetailsPage = () => {
   const navigate = useNavigate();
   const { tmdbId, seasonNumber } = useParams();
   const [details, setDetails] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
-  const { addFollow, removeFollow, isFollowing } = useFollowStore();
+  const { getItemByKey, setRoles } = useFollowStore();
+  const [rolePending, setRolePending] = useState(false);
 
   const id = Number(tmdbId);
   const season = Number(seasonNumber);
   const key = followKey("tv", id, season);
-  const following = isFollowing(key);
+  const followItem = getItemByKey(key);
+  const dropEnabled = followItem?.dropEnabled ?? false;
+  const bingeEnabled = followItem?.bingeEnabled ?? false;
 
   useEffect(() => {
     let active = true;
@@ -58,29 +62,83 @@ export const SeasonDetailsPage = () => {
   }
 
   const posterUrl = details?.poster_path ? `${IMG_BASE}${details.poster_path}` : null;
+  const episodeDates = (details?.episodes || [])
+    .map((episode: { air_date?: string | null }) => episode.air_date)
+    .filter((value: string | null | undefined): value is string =>
+      typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value),
+    );
+  const isCompleted =
+    episodeDates.length > 0 && !episodeDates.some((airDate: string) => airDate > todayIso());
+  const canRemove = dropEnabled || bingeEnabled;
 
   return (
     <div className="page">
       <div className="detail-hero">
         <div className="detail-poster">
+          {isCompleted ? <div className="poster-completed-badge">COMPLETED</div> : null}
           {posterUrl ? <img src={posterUrl} alt={details.name} /> : <div className="poster-fallback" />}
         </div>
         <div className="detail-info">
           <h1>{details.name}</h1>
           <p className="muted">{details.air_date || "TBD"}</p>
           <div className="detail-actions">
-            <button
-              className={following ? "button secondary" : "button"}
-              onClick={async () => {
-                if (following) {
-                  await removeFollow(key);
-                } else {
-                  await addFollow({ mediaType: "tv", tmdbId: id, seasonNumber: season });
-                }
-              }}
-            >
-              {following ? "Tracking" : "Track season"}
-            </button>
+            {isCompleted ? null : (
+              <>
+                <button
+                  className={dropEnabled ? "button secondary" : "button"}
+                  disabled={rolePending}
+                  onClick={async () => {
+                    setRolePending(true);
+                    try {
+                      await setRoles(
+                        { mediaType: "tv", tmdbId: id, seasonNumber: season, targetType: "tv_season" },
+                        { drop: !dropEnabled, binge: bingeEnabled },
+                      );
+                    } finally {
+                      setRolePending(false);
+                    }
+                  }}
+                >
+                  Drop
+                </button>
+                <button
+                  className={bingeEnabled ? "button secondary" : "button"}
+                  disabled={rolePending}
+                  onClick={async () => {
+                    setRolePending(true);
+                    try {
+                      await setRoles(
+                        { mediaType: "tv", tmdbId: id, seasonNumber: season, targetType: "tv_season" },
+                        { drop: dropEnabled, binge: !bingeEnabled },
+                      );
+                    } finally {
+                      setRolePending(false);
+                    }
+                  }}
+                >
+                  Binge
+                </button>
+              </>
+            )}
+            {isCompleted && canRemove ? (
+              <button
+                className="button secondary"
+                disabled={rolePending}
+                onClick={async () => {
+                  setRolePending(true);
+                  try {
+                    await setRoles(
+                      { mediaType: "tv", tmdbId: id, seasonNumber: season, targetType: "tv_season" },
+                      { drop: false, binge: false },
+                    );
+                  } finally {
+                    setRolePending(false);
+                  }
+                }}
+              >
+                Remove
+              </button>
+            ) : null}
             <button className="button ghost" onClick={() => navigate(-1)}>
               Back
             </button>

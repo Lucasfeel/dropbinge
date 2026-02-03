@@ -52,6 +52,7 @@ export const MyPage = () => {
                   subtitle={item.meta?.date || "TBD"}
                   posterPath={item.posterPath}
                   to={`/title/${item.mediaType}/${item.tmdbId}`}
+                  isCompleted={item.isCompleted}
                   action={
                     <div className="poster-action-row">
                       <button className="button tiny secondary" onClick={() => removeFollow(item.key)}>
@@ -107,6 +108,7 @@ export const MyPage = () => {
                   subtitle={item.meta?.date || "TBD"}
                   posterPath={item.posterPath}
                   to={`/title/${item.mediaType}/${item.tmdbId}`}
+                  isCompleted={item.isCompleted}
                   action={
                     <button className="button tiny secondary" onClick={() => removeFollow(item.key)}>
                       Unfollow

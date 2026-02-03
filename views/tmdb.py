@@ -32,6 +32,11 @@ def _normalized_title(item, media_type):
     resolved_media = media_type or item.get("media_type") or "movie"
     title = item.get("title") or item.get("name") or f"TMDB {item.get('id')}"
     date = item.get("release_date") if resolved_media == "movie" else item.get("first_air_date")
+    is_completed = item.get("is_completed")
+    if is_completed is None and resolved_media == "movie":
+        release_date = item.get("release_date")
+        if release_date and release_date <= date.today().isoformat():
+            is_completed = True
     return {
         "id": item.get("id"),
         "media_type": resolved_media,
@@ -41,7 +46,7 @@ def _normalized_title(item, media_type):
         "date": date,
         "vote_average": item.get("vote_average"),
         "vote_count": item.get("vote_count"),
-        "is_completed": item.get("is_completed"),
+        "is_completed": is_completed,
     }
 
 
@@ -345,7 +350,19 @@ def list_movie_upcoming():
     language = request.args.get("language")
     region = request.args.get("region")
     params = {"page": page, "language": language, "region": region}
-    return _list_endpoint("/movie/upcoming", tmdb_client.list_movie_upcoming, "movie", params)
+
+    def fetcher(**kwargs):
+        payload = tmdb_client.list_movie_upcoming(**kwargs)
+        results = payload.get("results") or []
+        today = date.today().isoformat()
+        payload["results"] = [
+            item
+            for item in results
+            if not (item.get("release_date") and item.get("release_date") <= today)
+        ]
+        return payload
+
+    return _list_endpoint("/movie/upcoming", fetcher, "movie", params)
 
 
 @tmdb_bp.get("/list/tv/popular")
@@ -408,6 +425,22 @@ def list_tv_seasons():
         season_items = []
         from concurrent.futures import ThreadPoolExecutor
 
+        def is_season_completed(details, season_number):
+            if season_number == 0:
+                return False
+            status = details.get("status")
+            if status in {"Ended", "Canceled"}:
+                return True
+            next_episode = details.get("next_episode_to_air") or {}
+            next_season_number = next_episode.get("season_number")
+            if isinstance(next_season_number, int):
+                return season_number < next_season_number
+            last_episode = details.get("last_episode_to_air") or {}
+            last_season_number = last_episode.get("season_number")
+            if isinstance(last_season_number, int):
+                return season_number < last_season_number
+            return False
+
         def load_details(item):
             tv_id = item.get("id")
             if not tv_id:
@@ -415,6 +448,14 @@ def list_tv_seasons():
             try:
                 return _get_tv_details_cached(tv_id)
             except tmdb_client.TMDBError:
+                return None
+            except Exception:
+                logger.exception(
+                    "tv_seasons details worker failed tv_id=%s list=%s page=%s",
+                    tv_id,
+                    list_key,
+                    page,
+                )
                 return None
 
         with ThreadPoolExecutor(max_workers=5) as executor:
@@ -425,10 +466,43 @@ def list_tv_seasons():
                 continue
             series_id = details.get("id") or item.get("id")
             series_name = details.get("name") or item.get("name") or f"TMDB {series_id}"
-            for season in details.get("seasons") or []:
-                season_number = season.get("season_number")
-                if season_number is None:
+            seasons = details.get("seasons") or []
+
+            if list_key == "on-the-air":
+                next_episode = details.get("next_episode_to_air") or {}
+                next_season_number = next_episode.get("season_number")
+                if not isinstance(next_season_number, int):
                     continue
+                last_episode = details.get("last_episode_to_air") or {}
+                fallback_season_number = last_episode.get("season_number")
+                season_number = next_season_number
+                if season_number == 0 and isinstance(fallback_season_number, int):
+                    season_number = fallback_season_number
+                season = next(
+                    (
+                        entry
+                        for entry in seasons
+                        if entry.get("season_number") == season_number and season_number != 0
+                    ),
+                    None,
+                )
+                if season is None and season_number == 0:
+                    season = next(
+                        (
+                            entry
+                            for entry in seasons
+                            if isinstance(entry.get("season_number"), int)
+                            and entry.get("season_number") != 0
+                        ),
+                        None,
+                    )
+                if season is None:
+                    season = next(
+                        (entry for entry in seasons if entry.get("season_number") == season_number), None
+                    )
+                if not season:
+                    continue
+                season_number = season.get("season_number")
                 season_id = season.get("id") or abs(
                     tmdb_http_cache.stable_bigint_hash(f"tv:{series_id}:season:{season_number}")
                 )
@@ -442,7 +516,34 @@ def list_tv_seasons():
                         "date": season.get("air_date"),
                         "vote_average": item.get("vote_average"),
                         "vote_count": item.get("vote_count"),
-                        "is_completed": list_key == "completed",
+                        "is_completed": False,
+                        "season_number": season_number,
+                        "season_name": season.get("name"),
+                        "series_id": series_id,
+                        "series_name": series_name,
+                    }
+                )
+                continue
+
+            for season in seasons:
+                season_number = season.get("season_number")
+                if season_number is None:
+                    continue
+                season_completed = is_season_completed(details, season_number)
+                season_id = season.get("id") or abs(
+                    tmdb_http_cache.stable_bigint_hash(f"tv:{series_id}:season:{season_number}")
+                )
+                season_items.append(
+                    {
+                        "id": season_id,
+                        "media_type": "tv",
+                        "title": series_name,
+                        "poster_path": season.get("poster_path") or item.get("poster_path"),
+                        "backdrop_path": item.get("backdrop_path"),
+                        "date": season.get("air_date"),
+                        "vote_average": item.get("vote_average"),
+                        "vote_count": item.get("vote_count"),
+                        "is_completed": season_completed,
                         "season_number": season_number,
                         "season_name": season.get("name"),
                         "series_id": series_id,

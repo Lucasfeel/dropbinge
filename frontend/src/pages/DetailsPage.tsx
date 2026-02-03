@@ -7,6 +7,7 @@ import { SectionHeader } from "../components/SectionHeader";
 import { followKey, useFollowStore } from "../stores/followStore";
 
 const IMG_BASE = "https://image.tmdb.org/t/p/w500";
+const todayIso = () => new Date().toISOString().split("T")[0];
 
 export const DetailsPage = () => {
   const navigate = useNavigate();
@@ -16,7 +17,8 @@ export const DetailsPage = () => {
   const [providers, setProviders] = useState<any | null>(null);
   const [providersLoading, setProvidersLoading] = useState(false);
   const [providersError, setProvidersError] = useState(false);
-  const { addFollow, removeFollow, isFollowing } = useFollowStore();
+  const { getItemByKey, setRoles } = useFollowStore();
+  const [rolePending, setRolePending] = useState(false);
 
   const id = Number(tmdbId);
   const type = mediaType === "movie" ? "movie" : "tv";
@@ -81,10 +83,31 @@ export const DetailsPage = () => {
   const posterUrl = details?.poster_path ? `${IMG_BASE}${details.poster_path}` : null;
   const title = details?.title || details?.name || "Unknown title";
   const date = details?.release_date || details?.first_air_date || null;
-  const following = isFollowing(followKeyValue);
-  const followLabel = type === "tv" ? "Track series" : "Track";
+  const followItem = getItemByKey(followKeyValue);
+  const dropEnabled = followItem?.dropEnabled ?? false;
+  const bingeEnabled = followItem?.bingeEnabled ?? false;
+  const status = details?.status;
+  const isMovieCompleted =
+    type === "movie" &&
+    (status === "Released" || (details?.release_date && details.release_date <= todayIso()));
+  const isTvCompleted = type === "tv" && (status === "Ended" || status === "Canceled");
+  const isCompleted = type === "movie" ? isMovieCompleted : isTvCompleted;
+  const canRemove = dropEnabled || bingeEnabled;
 
   const seasons = useMemo(() => details?.seasons || [], [details]);
+  const nextSeasonNumber = details?.next_episode_to_air?.season_number;
+  const lastSeasonNumber = details?.last_episode_to_air?.season_number;
+  const resolveSeasonCompleted = (seasonNumber: number) => {
+    if (seasonNumber === 0) return false;
+    if (status === "Ended" || status === "Canceled") return true;
+    if (typeof nextSeasonNumber === "number") {
+      return seasonNumber < nextSeasonNumber;
+    }
+    if (typeof lastSeasonNumber === "number") {
+      return seasonNumber < lastSeasonNumber;
+    }
+    return false;
+  };
   const providerImageBase = "https://image.tmdb.org/t/p/w92";
   const providerGroups = useMemo(() => {
     if (!providers) return [];
@@ -117,24 +140,89 @@ export const DetailsPage = () => {
     <div className="page">
       <div className="detail-hero">
         <div className="detail-poster">
+          {isCompleted ? <div className="poster-completed-badge">COMPLETED</div> : null}
           {posterUrl ? <img src={posterUrl} alt={title} /> : <div className="poster-fallback" />}
         </div>
         <div className="detail-info">
           <h1>{title}</h1>
           <p className="muted">{date || "TBD"}</p>
           <div className="detail-actions">
-            <button
-              className={following ? "button secondary" : "button"}
-              onClick={async () => {
-                if (following) {
-                  await removeFollow(followKeyValue);
-                } else {
-                  await addFollow({ mediaType: type, tmdbId: id });
-                }
-              }}
-            >
-              {following ? "Tracking" : followLabel}
-            </button>
+            {isCompleted ? null : type === "movie" ? (
+              <button
+                className={dropEnabled ? "button secondary" : "button"}
+                disabled={rolePending}
+                onClick={async () => {
+                  setRolePending(true);
+                  try {
+                    await setRoles({ mediaType: "movie", tmdbId: id }, { drop: !dropEnabled });
+                  } finally {
+                    setRolePending(false);
+                  }
+                }}
+              >
+                Drop
+              </button>
+            ) : (
+              <>
+                <button
+                  className={dropEnabled ? "button secondary" : "button"}
+                  disabled={rolePending}
+                  onClick={async () => {
+                    setRolePending(true);
+                    try {
+                      await setRoles(
+                        { mediaType: "tv", tmdbId: id, targetType: "tv_full" },
+                        { drop: !dropEnabled, binge: bingeEnabled },
+                      );
+                    } finally {
+                      setRolePending(false);
+                    }
+                  }}
+                >
+                  Drop
+                </button>
+                <button
+                  className={bingeEnabled ? "button secondary" : "button"}
+                  disabled={rolePending}
+                  onClick={async () => {
+                    setRolePending(true);
+                    try {
+                      await setRoles(
+                        { mediaType: "tv", tmdbId: id, targetType: "tv_full" },
+                        { drop: dropEnabled, binge: !bingeEnabled },
+                      );
+                    } finally {
+                      setRolePending(false);
+                    }
+                  }}
+                >
+                  Binge
+                </button>
+              </>
+            )}
+            {isCompleted && canRemove ? (
+              <button
+                className="button secondary"
+                disabled={rolePending}
+                onClick={async () => {
+                  setRolePending(true);
+                  try {
+                    if (type === "movie") {
+                      await setRoles({ mediaType: "movie", tmdbId: id }, { drop: false });
+                    } else {
+                      await setRoles(
+                        { mediaType: "tv", tmdbId: id, targetType: "tv_full" },
+                        { drop: false, binge: false },
+                      );
+                    }
+                  } finally {
+                    setRolePending(false);
+                  }
+                }}
+              >
+                Remove
+              </button>
+            ) : null}
             <button className="button ghost" onClick={() => navigate(-1)}>
               Back
             </button>
@@ -144,37 +232,20 @@ export const DetailsPage = () => {
 
       {type === "tv" && (
         <>
-          <SectionHeader title="Seasons" subtitle="Track a season premiere or binge-ready date." />
+          <SectionHeader title="Seasons" subtitle="Season premieres and binge-ready dates." />
           <div className="season-grid">
             {seasons.map((season: any) => {
-              const seasonKey = followKey("tv", id, season.season_number);
-              const seasonFollowing = isFollowing(seasonKey);
+              const seasonNumber = season.season_number;
+              const completed =
+                typeof seasonNumber === "number" ? resolveSeasonCompleted(seasonNumber) : false;
               return (
                 <PosterCard
                   key={season.id}
-                  title={season.name || `Season ${season.season_number}`}
+                  title={season.name || `Season ${seasonNumber}`}
                   subtitle={season.air_date || "TBD"}
                   posterPath={season.poster_path}
-                  to={`/title/tv/${id}/season/${season.season_number}`}
-                  action={
-                    <button
-                      className={seasonFollowing ? "button tiny secondary" : "button tiny"}
-                      onClick={async (event) => {
-                        event.preventDefault();
-                        if (seasonFollowing) {
-                          await removeFollow(seasonKey);
-                        } else {
-                          await addFollow({
-                            mediaType: "tv",
-                            tmdbId: id,
-                            seasonNumber: season.season_number,
-                          });
-                        }
-                      }}
-                    >
-                      {seasonFollowing ? "Tracking" : "Track season"}
-                    </button>
-                  }
+                  to={`/title/tv/${id}/season/${seasonNumber}`}
+                  isCompleted={completed}
                 />
               );
             })}
