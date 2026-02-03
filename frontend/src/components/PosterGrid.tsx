@@ -4,20 +4,15 @@ import { PosterGridCard } from "./PosterGridCard";
 type PosterGridProps = {
   items: TitleSummary[];
   mediaType: "movie" | "tv";
-  onToggleFollow: (item: TitleSummary) => void;
-  getFollowState: (item: TitleSummary) => boolean;
 };
 
-export const PosterGrid = ({ items, mediaType, onToggleFollow, getFollowState }: PosterGridProps) => (
+export const PosterGrid = ({ items, mediaType }: PosterGridProps) => (
   <div className="poster-grid">
     {items.map((item) => (
       <PosterGridCard
         key={`${mediaType}-${item.id}`}
         item={item}
         mediaType={mediaType}
-        isFollowed={getFollowState(item)}
-        onToggleFollow={onToggleFollow}
-        showAction
       />
     ))}
   </div>

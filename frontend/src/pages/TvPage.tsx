@@ -5,21 +5,24 @@ import { ChipFilterRow } from "../components/ChipFilterRow";
 import { GridSkeleton } from "../components/GridSkeleton";
 import { PosterGrid } from "../components/PosterGrid";
 import { SectionHeader } from "../components/SectionHeader";
-import { fetchTvOnTheAir, fetchTvPopular } from "../api/tmdbLists";
+import { fetchTvSeasons } from "../api/tmdbLists";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
-import { followKey, useFollowStore } from "../stores/followStore";
+import { useFollowStore } from "../stores/followStore";
 import type { TitleSummary } from "../types";
 
 const FILTERS = [
   { key: "on-the-air", label: "On The Air" },
   { key: "popular", label: "Popular" },
-  { key: "tracked", label: "My Tracked" },
+  { key: "completed", label: "Completed" },
 ];
+const DEFAULT_FILTER = "on-the-air";
+const FILTER_KEYS = new Set(FILTERS.map((item) => item.key));
 
 export const TvPage = () => {
-  const { items, addFollow, removeFollow, isFollowing } = useFollowStore();
+  const { items } = useFollowStore();
   const [params, setParams] = useSearchParams();
-  const filter = params.get("filter") || "on-the-air";
+  const rawFilter = params.get("filter");
+  const filter = rawFilter && FILTER_KEYS.has(rawFilter) ? rawFilter : DEFAULT_FILTER;
   const sort = params.get("sort") || "popularity";
   const [browseItems, setBrowseItems] = useState<TitleSummary[]>([]);
   const [browsePage, setBrowsePage] = useState(1);
@@ -30,7 +33,7 @@ export const TvPage = () => {
   const trackedItems = useMemo(
     () =>
       items
-        .filter((item) => item.mediaType === "tv")
+        .filter((item) => item.mediaType === "tv" && typeof item.seasonNumber === "number")
         .map((item) => ({
           id: item.tmdbId,
           media_type: "tv" as const,
@@ -40,21 +43,18 @@ export const TvPage = () => {
           date: item.meta?.date || null,
           vote_average: null,
           vote_count: null,
+          season_number: item.seasonNumber ?? undefined,
+          series_id: item.tmdbId,
         })),
     [items],
   );
-
-  const fetcher = useMemo(() => {
-    if (filter === "popular") return fetchTvPopular;
-    return fetchTvOnTheAir;
-  }, [filter]);
 
   const loadBrowse = useCallback(
     async (nextPage: number, replace: boolean) => {
       setError(null);
       setLoading(true);
       try {
-        const response = await fetcher(nextPage);
+        const response = await fetchTvSeasons(nextPage, filter);
         setBrowsePage(response.page);
         setTotalPages(response.total_pages);
         setBrowseItems((prev) => (replace ? response.results : [...prev, ...response.results]));
@@ -64,58 +64,34 @@ export const TvPage = () => {
         setLoading(false);
       }
     },
-    [fetcher],
+    [filter],
   );
 
   useEffect(() => {
-    if (filter === "tracked") {
-      setBrowseItems(trackedItems);
-      setBrowsePage(1);
-      setTotalPages(null);
-      setError(null);
-      return;
+    if (rawFilter && rawFilter !== filter) {
+      setParams({ filter: DEFAULT_FILTER, sort }, { replace: true });
     }
+  }, [filter, rawFilter, setParams, sort]);
+
+  useEffect(() => {
     setBrowseItems([]);
     setBrowsePage(1);
     setTotalPages(null);
     setError(null);
     loadBrowse(1, true);
-  }, [filter, loadBrowse, trackedItems]);
-
-  useEffect(() => {
-    if (filter === "tracked") {
-      setBrowseItems(trackedItems);
-    }
-  }, [filter, trackedItems]);
+  }, [filter, loadBrowse]);
 
   const sortedBrowse = useMemo(() => {
     if (sort !== "rating") return browseItems;
     return [...browseItems].sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0));
   }, [browseItems, sort]);
 
-  const getFollowState = useCallback(
-    (item: TitleSummary) => isFollowing(followKey("tv", item.id)),
-    [isFollowing],
-  );
-
-  const handleToggleFollow = useCallback(
-    async (item: TitleSummary) => {
-      const key = followKey("tv", item.id);
-      if (isFollowing(key)) {
-        await removeFollow(key);
-        return;
-      }
-      await addFollow({ mediaType: "tv", tmdbId: item.id });
-    },
-    [addFollow, isFollowing, removeFollow],
-  );
-
-  const hasMore = filter !== "tracked" && (totalPages ? browsePage < totalPages : true);
+  const hasMore = totalPages ? browsePage < totalPages : true;
   const isLoadingMore = loading && browseItems.length > 0;
   const loadMore = useCallback(() => {
-    if (!hasMore || loading || filter === "tracked") return;
+    if (!hasMore || loading) return;
     loadBrowse(browsePage + 1, false);
-  }, [browsePage, filter, hasMore, loadBrowse, loading]);
+  }, [browsePage, hasMore, loadBrowse, loading]);
   const sentinelRef = useInfiniteScroll({ onLoadMore: loadMore, hasMore, loading });
 
   return (
@@ -153,12 +129,7 @@ export const TvPage = () => {
       {trackedItems.length > 0 ? (
         <>
           <SectionHeader title="My tracked" subtitle="Shows you are following." />
-          <PosterGrid
-            items={trackedItems}
-            mediaType="tv"
-            onToggleFollow={handleToggleFollow}
-            getFollowState={getFollowState}
-          />
+          <PosterGrid items={trackedItems} mediaType="tv" />
         </>
       ) : (
         <>
@@ -179,12 +150,7 @@ export const TvPage = () => {
       {loading && browseItems.length === 0 ? (
         <GridSkeleton count={8} />
       ) : (
-        <PosterGrid
-          items={sortedBrowse}
-          mediaType="tv"
-          onToggleFollow={handleToggleFollow}
-          getFollowState={getFollowState}
-        />
+        <PosterGrid items={sortedBrowse} mediaType="tv" />
       )}
       {isLoadingMore ? <GridSkeleton count={4} /> : null}
       <div ref={sentinelRef} style={{ height: 1 }} />
