@@ -12,6 +12,7 @@ import type { TitleSummary } from "../types";
 
 const FILTERS = [
   { key: "on-the-air", label: "On The Air" },
+  { key: "upcoming", label: "Upcoming" },
   { key: "completed", label: "Completed" },
 ];
 const DEFAULT_FILTER = "on-the-air";
@@ -54,7 +55,10 @@ export const TvPage = () => {
       setError(null);
       setLoading(true);
       try {
-        const response = await fetchTvSeasons(nextPage, filter);
+        const response = await fetchTvSeasons(
+          nextPage,
+          filter as "on-the-air" | "upcoming" | "completed",
+        );
         setBrowsePage(response.page);
         setTotalPages(response.total_pages);
         setBrowseItems((prev) => (replace ? response.results : [...prev, ...response.results]));

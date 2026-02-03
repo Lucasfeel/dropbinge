@@ -5,13 +5,14 @@ import { ChipFilterRow } from "../components/ChipFilterRow";
 import { GridSkeleton } from "../components/GridSkeleton";
 import { PosterGrid } from "../components/PosterGrid";
 import { SectionHeader } from "../components/SectionHeader";
-import { fetchMovieCompleted, fetchMovieUpcoming } from "../api/tmdbLists";
+import { fetchMovieCompleted, fetchMovieOutNow, fetchMovieUpcoming } from "../api/tmdbLists";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 import { useFollowStore } from "../stores/followStore";
 import type { TitleSummary } from "../types";
 
 const FILTERS = [
   { key: "upcoming", label: "Upcoming" },
+  { key: "out-now", label: "Out Now" },
   { key: "completed", label: "Completed" },
 ];
 const DEFAULT_FILTER = "upcoming";
@@ -49,6 +50,7 @@ export const MoviePage = () => {
 
   const fetcher = useMemo(() => {
     if (filter === "completed") return fetchMovieCompleted;
+    if (filter === "out-now") return fetchMovieOutNow;
     return fetchMovieUpcoming;
   }, [filter]);
 
@@ -111,7 +113,7 @@ export const MoviePage = () => {
   return (
     <div className="page movie-page">
       <div className="page-hero">
-        <SectionHeader title="Movies" subtitle="Track upcoming films and release changes." />
+        <SectionHeader title="Movies" subtitle="Browse upcoming releases and what's out now." />
       </div>
       <div className="filter-controls">
         <ChipFilterRow>
