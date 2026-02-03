@@ -170,3 +170,9 @@ def discover_movies(params):
 
 def discover_tv(params):
     return tmdb_get("/discover/tv", params=params)
+
+
+def get_watch_providers(media_type, tmdb_id):
+    if media_type not in {"movie", "tv"}:
+        raise TMDBRequestError("Invalid media type.")
+    return tmdb_get(f"/{media_type}/{tmdb_id}/watch/providers")

@@ -273,6 +273,53 @@ def tv_season_details(tv_id, season_number):
         return _tmdb_error_response("tmdb_upstream_error", "TMDB request failed")
 
 
+@tmdb_bp.get("/watch-providers/<media_type>/<int:item_id>")
+def watch_providers(media_type, item_id):
+    if media_type not in {"movie", "tv"}:
+        return _json_response({"error": "Invalid media type"}, status=400, cache_status="MISS")
+    region = (request.args.get("region") or "US").upper()
+    cache_key = tmdb_http_cache.make_cache_key(
+        "http:watch_providers", tmdb_id=item_id, season_number=-1
+    )
+    try:
+        cached = tmdb_http_cache.get_cached(None, *cache_key)
+        if cached is not None and cached.get("region") == region:
+            _log_cache("watch_providers", "HIT", 0)
+            return _json_response(cached, cache_status="HIT")
+        start = time.perf_counter()
+        payload = tmdb_client.get_watch_providers(media_type, item_id)
+        latency_ms = int((time.perf_counter() - start) * 1000)
+        results = payload.get("results") or {}
+        region_payload = results.get(region, {})
+        response = {
+            "region": region,
+            "link": region_payload.get("link"),
+        }
+        for key in ("flatrate", "free", "ads", "rent", "buy"):
+            if key in region_payload:
+                response[key] = region_payload.get(key)
+        tmdb_http_cache.set_cached(
+            None,
+            cache_key[0],
+            cache_key[1],
+            cache_key[2],
+            response,
+            tmdb_http_cache.WATCH_PROVIDERS_TTL_SECONDS,
+        )
+        _log_cache("watch_providers", "MISS", latency_ms)
+        return _json_response(response, cache_status="MISS")
+    except tmdb_client.TMDBConfigError:
+        return _tmdb_error_response(
+            "tmdb_not_configured", "TMDB credentials are not configured"
+        )
+    except tmdb_client.TMDBAuthError:
+        return _tmdb_error_response("tmdb_auth_error", "TMDB authentication failed")
+    except tmdb_client.TMDBRateLimitError:
+        return _tmdb_error_response("tmdb_rate_limited", "TMDB rate limit exceeded")
+    except (tmdb_client.TMDBUpstreamError, tmdb_client.TMDBRequestError):
+        return _tmdb_error_response("tmdb_upstream_error", "TMDB request failed")
+
+
 def _get_page_param():
     page = request.args.get("page", type=int, default=1)
     if page < 1:
