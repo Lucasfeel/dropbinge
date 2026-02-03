@@ -11,11 +11,10 @@ import { useFollowStore } from "../stores/followStore";
 import type { TitleSummary } from "../types";
 
 const FILTERS = [
-  { key: "popular", label: "Popular" },
   { key: "top-rated", label: "Top Rated" },
   { key: "completed", label: "Completed" },
 ];
-const DEFAULT_FILTER = "popular";
+const DEFAULT_FILTER = "top-rated";
 const FILTER_KEYS = new Set(FILTERS.map((item) => item.key));
 
 export const SeriesPage = () => {
@@ -23,7 +22,7 @@ export const SeriesPage = () => {
   const [params, setParams] = useSearchParams();
   const rawFilter = params.get("filter");
   const filter = rawFilter && FILTER_KEYS.has(rawFilter) ? rawFilter : DEFAULT_FILTER;
-  const sort = params.get("sort") || "popularity";
+  const sort = params.get("sort") || "rating";
   const [browseItems, setBrowseItems] = useState<TitleSummary[]>([]);
   const [browsePage, setBrowsePage] = useState(1);
   const [totalPages, setTotalPages] = useState<number | null>(null);
@@ -87,12 +86,9 @@ export const SeriesPage = () => {
   }, [filter, loadBrowse]);
 
   const sortedBrowse = useMemo(() => {
-    if (filter === "top-rated") {
-      return [...browseItems].sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0));
-    }
     if (sort !== "rating") return browseItems;
     return [...browseItems].sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0));
-  }, [browseItems, filter, sort]);
+  }, [browseItems, sort]);
 
   const hasMore = !error && (totalPages ? browsePage < totalPages : true);
   const isLoadingMore = loading && browseItems.length > 0;
