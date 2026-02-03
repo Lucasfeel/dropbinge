@@ -416,6 +416,14 @@ def list_tv_seasons():
                 return _get_tv_details_cached(tv_id)
             except tmdb_client.TMDBError:
                 return None
+            except Exception:
+                logger.exception(
+                    "tv_seasons details worker failed tv_id=%s list=%s page=%s",
+                    tv_id,
+                    list_key,
+                    page,
+                )
+                return None
 
         with ThreadPoolExecutor(max_workers=5) as executor:
             detail_results = list(executor.map(load_details, base_results))

@@ -19,6 +19,10 @@ _memory_cache = {}
 
 
 def _use_memory_cache():
+    # Background threads (e.g., ThreadPoolExecutor workers) lack Flask app context.
+    # Fall back to memory cache to avoid accessing flask.g in DB cache.
+    if not has_app_context():
+        return True
     if os.getenv("FLASK_ENV") == "testing":
         return True
     if has_app_context() and current_app.testing:

@@ -16,7 +16,8 @@ export const DetailsPage = () => {
   const [providers, setProviders] = useState<any | null>(null);
   const [providersLoading, setProvidersLoading] = useState(false);
   const [providersError, setProvidersError] = useState(false);
-  const { addFollow, removeFollow, isFollowing } = useFollowStore();
+  const { getItemByKey, setRoles } = useFollowStore();
+  const [rolePending, setRolePending] = useState(false);
 
   const id = Number(tmdbId);
   const type = mediaType === "movie" ? "movie" : "tv";
@@ -81,8 +82,9 @@ export const DetailsPage = () => {
   const posterUrl = details?.poster_path ? `${IMG_BASE}${details.poster_path}` : null;
   const title = details?.title || details?.name || "Unknown title";
   const date = details?.release_date || details?.first_air_date || null;
-  const following = isFollowing(followKeyValue);
-  const followLabel = type === "tv" ? "Track series" : "Track";
+  const followItem = getItemByKey(followKeyValue);
+  const dropEnabled = followItem?.dropEnabled ?? false;
+  const bingeEnabled = followItem?.bingeEnabled ?? false;
 
   const seasons = useMemo(() => details?.seasons || [], [details]);
   const providerImageBase = "https://image.tmdb.org/t/p/w92";
@@ -123,18 +125,59 @@ export const DetailsPage = () => {
           <h1>{title}</h1>
           <p className="muted">{date || "TBD"}</p>
           <div className="detail-actions">
-            <button
-              className={following ? "button secondary" : "button"}
-              onClick={async () => {
-                if (following) {
-                  await removeFollow(followKeyValue);
-                } else {
-                  await addFollow({ mediaType: type, tmdbId: id });
-                }
-              }}
-            >
-              {following ? "Tracking" : followLabel}
-            </button>
+            {type === "movie" ? (
+              <button
+                className={dropEnabled ? "button secondary" : "button"}
+                disabled={rolePending}
+                onClick={async () => {
+                  setRolePending(true);
+                  try {
+                    await setRoles({ mediaType: "movie", tmdbId: id }, { drop: !dropEnabled });
+                  } finally {
+                    setRolePending(false);
+                  }
+                }}
+              >
+                Drop
+              </button>
+            ) : (
+              <>
+                <button
+                  className={dropEnabled ? "button secondary" : "button"}
+                  disabled={rolePending}
+                  onClick={async () => {
+                    setRolePending(true);
+                    try {
+                      await setRoles(
+                        { mediaType: "tv", tmdbId: id, targetType: "tv_full" },
+                        { drop: !dropEnabled, binge: bingeEnabled },
+                      );
+                    } finally {
+                      setRolePending(false);
+                    }
+                  }}
+                >
+                  Drop
+                </button>
+                <button
+                  className={bingeEnabled ? "button secondary" : "button"}
+                  disabled={rolePending}
+                  onClick={async () => {
+                    setRolePending(true);
+                    try {
+                      await setRoles(
+                        { mediaType: "tv", tmdbId: id, targetType: "tv_full" },
+                        { drop: dropEnabled, binge: !bingeEnabled },
+                      );
+                    } finally {
+                      setRolePending(false);
+                    }
+                  }}
+                >
+                  Binge
+                </button>
+              </>
+            )}
             <button className="button ghost" onClick={() => navigate(-1)}>
               Back
             </button>
@@ -144,40 +187,17 @@ export const DetailsPage = () => {
 
       {type === "tv" && (
         <>
-          <SectionHeader title="Seasons" subtitle="Track a season premiere or binge-ready date." />
+          <SectionHeader title="Seasons" subtitle="Season premieres and binge-ready dates." />
           <div className="season-grid">
-            {seasons.map((season: any) => {
-              const seasonKey = followKey("tv", id, season.season_number);
-              const seasonFollowing = isFollowing(seasonKey);
-              return (
-                <PosterCard
-                  key={season.id}
-                  title={season.name || `Season ${season.season_number}`}
-                  subtitle={season.air_date || "TBD"}
-                  posterPath={season.poster_path}
-                  to={`/title/tv/${id}/season/${season.season_number}`}
-                  action={
-                    <button
-                      className={seasonFollowing ? "button tiny secondary" : "button tiny"}
-                      onClick={async (event) => {
-                        event.preventDefault();
-                        if (seasonFollowing) {
-                          await removeFollow(seasonKey);
-                        } else {
-                          await addFollow({
-                            mediaType: "tv",
-                            tmdbId: id,
-                            seasonNumber: season.season_number,
-                          });
-                        }
-                      }}
-                    >
-                      {seasonFollowing ? "Tracking" : "Track season"}
-                    </button>
-                  }
-                />
-              );
-            })}
+            {seasons.map((season: any) => (
+              <PosterCard
+                key={season.id}
+                title={season.name || `Season ${season.season_number}`}
+                subtitle={season.air_date || "TBD"}
+                posterPath={season.poster_path}
+                to={`/title/tv/${id}/season/${season.season_number}`}
+              />
+            ))}
           </div>
         </>
       )}
