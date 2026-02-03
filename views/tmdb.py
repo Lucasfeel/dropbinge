@@ -31,7 +31,7 @@ def _log_cache(kind, cache_status, latency_ms):
 def _normalized_title(item, media_type):
     resolved_media = media_type or item.get("media_type") or "movie"
     title = item.get("title") or item.get("name") or f"TMDB {item.get('id')}"
-    date = item.get("release_date") if resolved_media == "movie" else item.get("first_air_date")
+    date_value = item.get("release_date") if resolved_media == "movie" else item.get("first_air_date")
     is_completed = item.get("is_completed")
     if is_completed is None and resolved_media == "movie":
         release_date = item.get("release_date")
@@ -43,7 +43,7 @@ def _normalized_title(item, media_type):
         "title": title,
         "poster_path": item.get("poster_path"),
         "backdrop_path": item.get("backdrop_path"),
-        "date": date,
+        "date": date_value,
         "vote_average": item.get("vote_average"),
         "vote_count": item.get("vote_count"),
         "is_completed": is_completed,
@@ -107,6 +107,13 @@ def _list_endpoint(path, fetcher, media_type, params):
         return _tmdb_error_response("tmdb_rate_limited", "TMDB rate limit exceeded")
     except (tmdb_client.TMDBUpstreamError, tmdb_client.TMDBRequestError):
         return _tmdb_error_response("tmdb_upstream_error", "TMDB request failed")
+    except Exception:
+        logger.exception("tmdb_list endpoint failed path=%s params=%s", path, params)
+        return _json_response(
+            {"error": "internal_error", "message": "Unexpected server error"},
+            status=500,
+            cache_status="MISS",
+        )
 
 
 def _get_tv_details_cached(tv_id):
