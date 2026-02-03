@@ -11,12 +11,15 @@ export const SeasonDetailsPage = () => {
   const { tmdbId, seasonNumber } = useParams();
   const [details, setDetails] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
-  const { addFollow, removeFollow, isFollowing } = useFollowStore();
+  const { getItemByKey, setRoles } = useFollowStore();
+  const [rolePending, setRolePending] = useState(false);
 
   const id = Number(tmdbId);
   const season = Number(seasonNumber);
   const key = followKey("tv", id, season);
-  const following = isFollowing(key);
+  const followItem = getItemByKey(key);
+  const dropEnabled = followItem?.dropEnabled ?? false;
+  const bingeEnabled = followItem?.bingeEnabled ?? false;
 
   useEffect(() => {
     let active = true;
@@ -70,16 +73,38 @@ export const SeasonDetailsPage = () => {
           <p className="muted">{details.air_date || "TBD"}</p>
           <div className="detail-actions">
             <button
-              className={following ? "button secondary" : "button"}
+              className={dropEnabled ? "button secondary" : "button"}
+              disabled={rolePending}
               onClick={async () => {
-                if (following) {
-                  await removeFollow(key);
-                } else {
-                  await addFollow({ mediaType: "tv", tmdbId: id, seasonNumber: season });
+                setRolePending(true);
+                try {
+                  await setRoles(
+                    { mediaType: "tv", tmdbId: id, seasonNumber: season, targetType: "tv_season" },
+                    { drop: !dropEnabled, binge: bingeEnabled },
+                  );
+                } finally {
+                  setRolePending(false);
                 }
               }}
             >
-              {following ? "Tracking" : "Track season"}
+              Drop
+            </button>
+            <button
+              className={bingeEnabled ? "button secondary" : "button"}
+              disabled={rolePending}
+              onClick={async () => {
+                setRolePending(true);
+                try {
+                  await setRoles(
+                    { mediaType: "tv", tmdbId: id, seasonNumber: season, targetType: "tv_season" },
+                    { drop: dropEnabled, binge: !bingeEnabled },
+                  );
+                } finally {
+                  setRolePending(false);
+                }
+              }}
+            >
+              Binge
             </button>
             <button className="button ghost" onClick={() => navigate(-1)}>
               Back
