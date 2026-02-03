@@ -91,12 +91,12 @@ export const MoviePage = () => {
     return [...browseItems].sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0));
   }, [browseItems, sort]);
 
-  const hasMore = totalPages ? browsePage < totalPages : true;
+  const hasMore = !error && (totalPages ? browsePage < totalPages : true);
   const isLoadingMore = loading && browseItems.length > 0;
   const loadMore = useCallback(() => {
-    if (!hasMore || loading) return;
+    if (!hasMore || loading || error) return;
     loadBrowse(browsePage + 1, false);
-  }, [browsePage, hasMore, loadBrowse, loading]);
+  }, [browsePage, error, hasMore, loadBrowse, loading]);
   const sentinelRef = useInfiniteScroll({ onLoadMore: loadMore, hasMore, loading });
 
   return (
