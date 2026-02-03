@@ -62,29 +62,14 @@ export const MoviePage = () => {
         const response = await fetcher(nextPage);
         setBrowsePage(response.page);
         setTotalPages(response.total_pages);
-        const todayMidnight = new Date();
-        todayMidnight.setHours(0, 0, 0, 0);
-        const windowStart = new Date(todayMidnight);
-        windowStart.setDate(windowStart.getDate() - 60);
-        const results =
-          filter === "out-now"
-            ? response.results.filter((item) => {
-                const ts = Date.parse(item.date ?? "");
-                return (
-                  Number.isFinite(ts) &&
-                  ts >= windowStart.getTime() &&
-                  ts <= todayMidnight.getTime()
-                );
-              })
-            : response.results;
-        setBrowseItems((prev) => (replace ? results : [...prev, ...results]));
+        setBrowseItems((prev) => (replace ? response.results : [...prev, ...response.results]));
       } catch (err) {
         setError("Unable to load browse results. Please try again.");
       } finally {
         setLoading(false);
       }
     },
-    [fetcher, filter],
+    [fetcher],
   );
 
   useEffect(() => {
