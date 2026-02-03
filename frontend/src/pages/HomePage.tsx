@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { fetchTrendingAllDay } from "../api/tmdbLists";
+import { fetchMovieUpcoming, fetchTrendingAllDay } from "../api/tmdbLists";
 import { HorizontalRail } from "../components/HorizontalRail";
 import { GridSkeleton } from "../components/GridSkeleton";
 import { PosterGridCard } from "../components/PosterGridCard";
@@ -15,6 +15,8 @@ export const HomePage = () => {
   const { items: followItems } = useFollowStore();
   const [trendItems, setTrendItems] = useState<TitleSummary[]>([]);
   const [trendLoading, setTrendLoading] = useState(true);
+  const [blockbusterItems, setBlockbusterItems] = useState<TitleSummary[]>([]);
+  const [blockbusterLoading, setBlockbusterLoading] = useState(true);
   const [recentSearches, setRecentSearches] = useState(getRecentSearches());
 
   useEffect(() => {
@@ -54,6 +56,30 @@ export const HomePage = () => {
       }
     };
     loadTrending();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const loadBlockbusters = async () => {
+      setBlockbusterLoading(true);
+      try {
+        const response = await fetchMovieUpcoming(1);
+        if (!active) return;
+        setBlockbusterItems(response.results.slice(0, 12));
+      } catch (error) {
+        if (active) {
+          setBlockbusterItems([]);
+        }
+      } finally {
+        if (active) {
+          setBlockbusterLoading(false);
+        }
+      }
+    };
+    loadBlockbusters();
     return () => {
       active = false;
     };
@@ -125,9 +151,12 @@ export const HomePage = () => {
           <span>Upcoming &amp; Schedule</span>
           <span className="muted">Plan what’s next</span>
         </button>
-        <button className="quick-card" onClick={() => navigate("/movie?filter=tbd")}>
-          <span>TBD Watch</span>
-          <span className="muted">Track missing dates</span>
+        <button
+          className="quick-card"
+          onClick={() => navigate("/movie?filter=out-now&sort=latest")}
+        >
+          <span>Out Now</span>
+          <span className="muted">See what’s just released</span>
         </button>
       </div>
 
@@ -161,22 +190,20 @@ export const HomePage = () => {
         </HorizontalRail>
       )}
 
-      <SectionHeader title="TBD updates" subtitle="Placeholder until backend feeds arrive." />
-      <HorizontalRail>
-        {[1, 2, 3].map((index) => (
-          <div key={index} className="poster-tile poster-skeleton">
-            <div className="poster-tile-media">
-              <div className="skeleton-box" />
-            </div>
-            <div className="poster-tile-footer">
-              <div className="poster-tile-text">
-                <div className="skeleton-line" />
-                <div className="skeleton-line short" />
-              </div>
-            </div>
-          </div>
-        ))}
-      </HorizontalRail>
+      <SectionHeader title="Blockbuster" subtitle="Upcoming hits with high popularity." />
+      {blockbusterLoading ? (
+        <GridSkeleton count={12} />
+      ) : (
+        <HorizontalRail>
+          {blockbusterItems.map((item) => (
+            <PosterGridCard
+              key={`movie-${item.id}`}
+              item={item}
+              mediaType="movie"
+            />
+          ))}
+        </HorizontalRail>
+      )}
     </div>
   );
 };

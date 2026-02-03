@@ -5,13 +5,14 @@ import { ChipFilterRow } from "../components/ChipFilterRow";
 import { GridSkeleton } from "../components/GridSkeleton";
 import { PosterGrid } from "../components/PosterGrid";
 import { SectionHeader } from "../components/SectionHeader";
-import { fetchMovieCompleted, fetchMovieUpcoming } from "../api/tmdbLists";
+import { fetchMovieCompleted, fetchMoviePopular, fetchMovieUpcoming } from "../api/tmdbLists";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 import { useFollowStore } from "../stores/followStore";
 import type { TitleSummary } from "../types";
 
 const FILTERS = [
   { key: "upcoming", label: "Upcoming" },
+  { key: "out-now", label: "Out Now" },
   { key: "completed", label: "Completed" },
 ];
 const DEFAULT_FILTER = "upcoming";
@@ -49,6 +50,7 @@ export const MoviePage = () => {
 
   const fetcher = useMemo(() => {
     if (filter === "completed") return fetchMovieCompleted;
+    if (filter === "out-now") return fetchMoviePopular;
     return fetchMovieUpcoming;
   }, [filter]);
 
@@ -60,14 +62,29 @@ export const MoviePage = () => {
         const response = await fetcher(nextPage);
         setBrowsePage(response.page);
         setTotalPages(response.total_pages);
-        setBrowseItems((prev) => (replace ? response.results : [...prev, ...response.results]));
+        const todayMidnight = new Date();
+        todayMidnight.setHours(0, 0, 0, 0);
+        const windowStart = new Date(todayMidnight);
+        windowStart.setDate(windowStart.getDate() - 60);
+        const results =
+          filter === "out-now"
+            ? response.results.filter((item) => {
+                const ts = Date.parse(item.date ?? "");
+                return (
+                  Number.isFinite(ts) &&
+                  ts >= windowStart.getTime() &&
+                  ts <= todayMidnight.getTime()
+                );
+              })
+            : response.results;
+        setBrowseItems((prev) => (replace ? results : [...prev, ...results]));
       } catch (err) {
         setError("Unable to load browse results. Please try again.");
       } finally {
         setLoading(false);
       }
     },
-    [fetcher],
+    [fetcher, filter],
   );
 
   useEffect(() => {
@@ -111,7 +128,7 @@ export const MoviePage = () => {
   return (
     <div className="page movie-page">
       <div className="page-hero">
-        <SectionHeader title="Movies" subtitle="Track upcoming films and release changes." />
+        <SectionHeader title="Movies" subtitle="Browse upcoming releases and what's out now." />
       </div>
       <div className="filter-controls">
         <ChipFilterRow>
