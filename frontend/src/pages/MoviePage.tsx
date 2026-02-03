@@ -5,7 +5,7 @@ import { ChipFilterRow } from "../components/ChipFilterRow";
 import { GridSkeleton } from "../components/GridSkeleton";
 import { PosterGrid } from "../components/PosterGrid";
 import { SectionHeader } from "../components/SectionHeader";
-import { fetchMovieCompleted, fetchMoviePopular, fetchMovieUpcoming } from "../api/tmdbLists";
+import { fetchMovieCompleted, fetchMovieOutNow, fetchMovieUpcoming } from "../api/tmdbLists";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 import { useFollowStore } from "../stores/followStore";
 import type { TitleSummary } from "../types";
@@ -50,7 +50,7 @@ export const MoviePage = () => {
 
   const fetcher = useMemo(() => {
     if (filter === "completed") return fetchMovieCompleted;
-    if (filter === "out-now") return fetchMoviePopular;
+    if (filter === "out-now") return fetchMovieOutNow;
     return fetchMovieUpcoming;
   }, [filter]);
 

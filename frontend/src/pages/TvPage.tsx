@@ -55,11 +55,10 @@ export const TvPage = () => {
       setError(null);
       setLoading(true);
       try {
-        const apiList = (filter === "upcoming" ? "popular" : filter) as
-          | "on-the-air"
-          | "popular"
-          | "completed";
-        const response = await fetchTvSeasons(nextPage, apiList);
+        const response = await fetchTvSeasons(
+          nextPage,
+          filter as "on-the-air" | "upcoming" | "completed",
+        );
         setBrowsePage(response.page);
         setTotalPages(response.total_pages);
         const todayMidnight = new Date();
