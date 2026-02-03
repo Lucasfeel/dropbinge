@@ -1,5 +1,6 @@
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from urllib.parse import urlencode
 
@@ -134,6 +135,77 @@ def _get_tv_details_cached(tv_id):
         tmdb_http_cache.TV_TTL_SECONDS,
     )
     _log_cache("tv_detail", "MISS", latency_ms)
+    return payload
+
+
+def _enrich_tv_results_with_completion(payload):
+    results = payload.get("results") or []
+    if not results:
+        return payload
+    candidates = [
+        item
+        for item in results
+        if isinstance(item, dict) and item.get("id") and "is_completed" not in item
+    ]
+    if not candidates:
+        return payload
+
+    def load_details(item):
+        tv_id = item.get("id")
+        if not tv_id:
+            return None
+        try:
+            return _get_tv_details_cached(tv_id)
+        except Exception:
+            logger.exception("tv_popular details worker failed tv_id=%s", tv_id)
+            return None
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        detail_results = list(executor.map(load_details, candidates))
+
+    for item, details in zip(candidates, detail_results):
+        if not details:
+            continue
+        status = details.get("status")
+        if status in {"Ended", "Canceled"}:
+            item["is_completed"] = True
+    return payload
+
+
+def _enrich_mixed_results_with_tv_completion(payload):
+    results = payload.get("results") or []
+    if not results:
+        return payload
+    candidates = [
+        item
+        for item in results
+        if isinstance(item, dict)
+        and item.get("id")
+        and item.get("media_type") == "tv"
+        and "is_completed" not in item
+    ]
+    if not candidates:
+        return payload
+
+    def load_details(item):
+        tv_id = item.get("id")
+        if not tv_id:
+            return None
+        try:
+            return _get_tv_details_cached(tv_id)
+        except Exception:
+            logger.exception("trending details worker failed tv_id=%s", tv_id)
+            return None
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        detail_results = list(executor.map(load_details, candidates))
+
+    for item, details in zip(candidates, detail_results):
+        if not details:
+            continue
+        status = details.get("status")
+        if status in {"Ended", "Canceled"}:
+            item["is_completed"] = True
     return payload
 
 
@@ -379,7 +451,12 @@ def list_tv_popular():
         return _json_response({"error": "Invalid page"}, status=400, cache_status="MISS")
     language = request.args.get("language")
     params = {"page": page, "language": language}
-    return _list_endpoint("/tv/popular", tmdb_client.list_tv_popular, "tv", params)
+
+    def fetcher(**kwargs):
+        payload = tmdb_client.list_tv_popular(**kwargs)
+        return _enrich_tv_results_with_completion(payload)
+
+    return _list_endpoint("/tv/popular", fetcher, "tv", params)
 
 
 @tmdb_bp.get("/list/tv/on_the_air")
@@ -399,7 +476,11 @@ def list_trending_all_day():
         return _json_response({"error": "Invalid page"}, status=400, cache_status="MISS")
     language = request.args.get("language")
     params = {"page": page, "language": language}
-    return _list_endpoint("/trending/all/day", tmdb_client.list_trending_all_day, None, params)
+    def fetcher(**kwargs):
+        payload = tmdb_client.list_trending_all_day(**kwargs)
+        return _enrich_mixed_results_with_tv_completion(payload)
+
+    return _list_endpoint("/trending/all/day", fetcher, None, params)
 
 
 @tmdb_bp.get("/list/tv/seasons")
@@ -430,8 +511,6 @@ def list_tv_seasons():
             base_payload = tmdb_client.list_tv_on_the_air(page=page, language=language)
         base_results = base_payload.get("results") or []
         season_items = []
-        from concurrent.futures import ThreadPoolExecutor
-
         def is_season_completed(details, season_number):
             if season_number == 0:
                 return False

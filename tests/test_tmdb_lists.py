@@ -99,3 +99,65 @@ def test_list_movie_popular_sets_completed(client, monkeypatch):
     body = resp.get_json()
     assert body["results"][0]["is_completed"] is True
     assert body["results"][1]["is_completed"] is None
+
+
+def test_list_tv_popular_marks_ended_as_completed(client, monkeypatch):
+    def fake_list_tv_popular(page=1, language=None):
+        return {
+            "page": page,
+            "total_pages": 1,
+            "results": [
+                {"id": 100, "name": "Ended Show"},
+                {"id": 101, "name": "Returning Show"},
+            ],
+        }
+
+    def fake_get_tv_details(tv_id, append=None):
+        if tv_id == 100:
+            return {"id": tv_id, "status": "Ended"}
+        return {"id": tv_id, "status": "Returning Series"}
+
+    monkeypatch.setattr(tmdb_client, "list_tv_popular", fake_list_tv_popular)
+    monkeypatch.setattr(tmdb_client, "get_tv_details", fake_get_tv_details)
+
+    resp = client.get("/api/tmdb/list/tv/popular?page=1")
+
+    assert resp.status_code == 200
+    body = resp.get_json()
+    results = {item["id"]: item for item in body["results"]}
+    assert results[100]["is_completed"] is True
+    assert results[101]["is_completed"] is None
+
+
+def test_list_trending_all_day_marks_ended_tv_as_completed(client, monkeypatch):
+    today = date.today()
+    yesterday = (today - timedelta(days=1)).isoformat()
+
+    def fake_list_trending_all_day(page=1, language=None):
+        return {
+            "page": page,
+            "total_pages": 1,
+            "results": [
+                {"id": 1, "media_type": "tv", "name": "Ended TV"},
+                {
+                    "id": 2,
+                    "media_type": "movie",
+                    "title": "Released Movie",
+                    "release_date": yesterday,
+                },
+            ],
+        }
+
+    def fake_get_tv_details(tv_id, append=None):
+        return {"id": tv_id, "status": "Ended"}
+
+    monkeypatch.setattr(tmdb_client, "list_trending_all_day", fake_list_trending_all_day)
+    monkeypatch.setattr(tmdb_client, "get_tv_details", fake_get_tv_details)
+
+    resp = client.get("/api/tmdb/list/trending/all/day?page=1")
+
+    assert resp.status_code == 200
+    body = resp.get_json()
+    results = {item["id"]: item for item in body["results"]}
+    assert results[1]["is_completed"] is True
+    assert results[2]["is_completed"] is True

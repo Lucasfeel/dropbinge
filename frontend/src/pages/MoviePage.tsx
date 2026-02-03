@@ -5,17 +5,16 @@ import { ChipFilterRow } from "../components/ChipFilterRow";
 import { GridSkeleton } from "../components/GridSkeleton";
 import { PosterGrid } from "../components/PosterGrid";
 import { SectionHeader } from "../components/SectionHeader";
-import { fetchMovieCompleted, fetchMoviePopular, fetchMovieUpcoming } from "../api/tmdbLists";
+import { fetchMovieCompleted, fetchMovieUpcoming } from "../api/tmdbLists";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 import { useFollowStore } from "../stores/followStore";
 import type { TitleSummary } from "../types";
 
 const FILTERS = [
-  { key: "popular", label: "Popular" },
   { key: "upcoming", label: "Upcoming" },
   { key: "completed", label: "Completed" },
 ];
-const DEFAULT_FILTER = "popular";
+const DEFAULT_FILTER = "upcoming";
 const FILTER_KEYS = new Set(FILTERS.map((item) => item.key));
 
 export const MoviePage = () => {
@@ -49,9 +48,8 @@ export const MoviePage = () => {
   );
 
   const fetcher = useMemo(() => {
-    if (filter === "upcoming") return fetchMovieUpcoming;
     if (filter === "completed") return fetchMovieCompleted;
-    return fetchMoviePopular;
+    return fetchMovieUpcoming;
   }, [filter]);
 
   const loadBrowse = useCallback(
@@ -86,9 +84,20 @@ export const MoviePage = () => {
     loadBrowse(1, true);
   }, [filter, loadBrowse]);
 
+  const toTimestamp = (value?: string | null) => {
+    if (!value) return 0;
+    const ts = Date.parse(value);
+    return Number.isFinite(ts) ? ts : 0;
+  };
+
   const sortedBrowse = useMemo(() => {
-    if (sort !== "rating") return browseItems;
-    return [...browseItems].sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0));
+    if (sort === "rating") {
+      return [...browseItems].sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0));
+    }
+    if (sort === "latest") {
+      return [...browseItems].sort((a, b) => toTimestamp(b.date) - toTimestamp(a.date));
+    }
+    return browseItems;
   }, [browseItems, sort]);
 
   const hasMore = !error && (totalPages ? browsePage < totalPages : true);
@@ -127,6 +136,7 @@ export const MoviePage = () => {
           >
             <option value="popularity">Popularity</option>
             <option value="rating">Rating</option>
+            <option value="latest">Latest</option>
           </select>
         </div>
       </div>
