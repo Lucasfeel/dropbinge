@@ -112,17 +112,37 @@ a {
   height: 28px;
 }
 
-.search-bar {
-  flex: 1;
+.top-header-actions {
+  margin-left: auto;
 }
 
-.search-bar input {
-  width: 100%;
-  background: #121a2a;
-  border: 1px solid #1f2b40;
-  color: #eef0f6;
-  padding: 10px 14px;
+.search-icon-button {
+  width: 40px;
+  height: 40px;
   border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(18, 26, 42, 0.9);
+  color: #f5f6fb;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.search-icon-button svg {
+  width: 20px;
+  height: 20px;
+}
+
+.search-icon-button:focus-visible {
+  outline: 2px solid #9bb0ff;
+  outline-offset: 2px;
+}
+
+.search-icon-button:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.25);
 }
 
 .bottom-nav {
@@ -473,24 +493,89 @@ a {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  color: inherit;
+  text-decoration: none;
+}
+
+.poster-tile-interactive {
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.poster-tile-interactive:hover {
+  transform: translateY(-4px) scale(1.01);
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 16px 28px rgba(0, 0, 0, 0.35);
+}
+
+.poster-tile-interactive:active {
+  transform: scale(0.98);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.32);
+}
+
+.poster-tile-interactive:focus-visible {
+  outline: 2px solid rgba(155, 176, 255, 0.9);
+  outline-offset: 2px;
 }
 
 .poster-tile-media {
   overflow: hidden;
   aspect-ratio: 2 / 3;
   background: #1a2435;
+  position: relative;
 }
 
 .poster-tile-link {
   display: block;
   height: 100%;
+  color: inherit;
+  text-decoration: none;
 }
 
-.poster-tile-link img {
+.poster-tile-media img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+.poster-tile-hint {
+  position: absolute;
+  inset: auto 10px 10px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(9, 14, 22, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #f5f6fb;
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  pointer-events: none;
+}
+
+.poster-tile-interactive:hover .poster-tile-hint,
+.poster-tile-interactive:focus-visible .poster-tile-hint {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.poster-completed-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(6, 16, 28, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #f5f6fb;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  pointer-events: none;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
 }
 
 .poster-tile-extra {
@@ -527,21 +612,18 @@ a {
   gap: 8px;
 }
 
-.tile-action {
-  width: var(--thumb-action-size);
-  height: var(--thumb-action-size);
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(20, 28, 44, 0.95);
-  color: #f5f6fb;
-  font-weight: 600;
-  cursor: pointer;
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.35);
-}
+@media (prefers-reduced-motion: reduce) {
+  .poster-tile-interactive,
+  .poster-tile-interactive:hover,
+  .poster-tile-interactive:active {
+    transform: none;
+    transition: none;
+    box-shadow: none;
+  }
 
-.tile-action.active {
-  background: #f4f5ff;
-  color: #0c111b;
+  .poster-tile-hint {
+    transition: none;
+  }
 }
 
 .poster-skeleton {
@@ -622,6 +704,44 @@ a {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.provider-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.provider-group h4 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.provider-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.provider-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(18, 26, 42, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #f5f6fb;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.provider-chip img {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: #0f1524;
 }
 
 .season-grid {

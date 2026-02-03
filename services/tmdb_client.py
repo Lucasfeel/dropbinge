@@ -162,3 +162,17 @@ def list_trending_all_day(page=1, language=None):
     if language:
         params["language"] = language
     return tmdb_get("/trending/all/day", params=params)
+
+
+def discover_movies(params):
+    return tmdb_get("/discover/movie", params=params)
+
+
+def discover_tv(params):
+    return tmdb_get("/discover/tv", params=params)
+
+
+def get_watch_providers(media_type, tmdb_id):
+    if media_type not in {"movie", "tv"}:
+        raise TMDBRequestError("Invalid media type.")
+    return tmdb_get(f"/{media_type}/{tmdb_id}/watch/providers")

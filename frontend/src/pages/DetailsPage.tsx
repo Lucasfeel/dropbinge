@@ -13,6 +13,9 @@ export const DetailsPage = () => {
   const { mediaType, tmdbId } = useParams();
   const [details, setDetails] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+  const [providers, setProviders] = useState<any | null>(null);
+  const [providersLoading, setProvidersLoading] = useState(false);
+  const [providersError, setProvidersError] = useState(false);
   const { addFollow, removeFollow, isFollowing } = useFollowStore();
 
   const id = Number(tmdbId);
@@ -46,12 +49,57 @@ export const DetailsPage = () => {
     };
   }, [id, type]);
 
+  useEffect(() => {
+    let active = true;
+    const loadProviders = async () => {
+      setProvidersLoading(true);
+      setProvidersError(false);
+      try {
+        const data = await apiFetch<any>(`/api/tmdb/watch-providers/${type}/${id}?region=US`);
+        if (active) {
+          setProviders(data);
+        }
+      } catch (error) {
+        if (active) {
+          setProviders(null);
+          setProvidersError(true);
+        }
+      } finally {
+        if (active) {
+          setProvidersLoading(false);
+        }
+      }
+    };
+    if (details && !Number.isNaN(id)) {
+      loadProviders();
+    }
+    return () => {
+      active = false;
+    };
+  }, [details, id, type]);
+
   const posterUrl = details?.poster_path ? `${IMG_BASE}${details.poster_path}` : null;
   const title = details?.title || details?.name || "Unknown title";
   const date = details?.release_date || details?.first_air_date || null;
   const following = isFollowing(followKeyValue);
+  const followLabel = type === "tv" ? "Track series" : "Track";
 
   const seasons = useMemo(() => details?.seasons || [], [details]);
+  const providerImageBase = "https://image.tmdb.org/t/p/w92";
+  const providerGroups = useMemo(() => {
+    if (!providers) return [];
+    const order = ["flatrate", "free", "ads", "rent", "buy"] as const;
+    return order
+      .map((key) => ({ key, items: providers[key] || [] }))
+      .filter((group) => group.items.length > 0);
+  }, [providers]);
+  const providerLabels: Record<string, string> = {
+    flatrate: "Stream",
+    free: "Free",
+    ads: "With ads",
+    rent: "Rent",
+    buy: "Buy",
+  };
 
   if (loading) {
     return <div className="page">Loading...</div>;
@@ -85,7 +133,7 @@ export const DetailsPage = () => {
                 }
               }}
             >
-              {following ? "Following" : "Follow"}
+              {following ? "Tracking" : followLabel}
             </button>
             <button className="button ghost" onClick={() => navigate(-1)}>
               Back
@@ -132,6 +180,36 @@ export const DetailsPage = () => {
             })}
           </div>
         </>
+      )}
+
+      <SectionHeader title="Where to watch" subtitle="Availability for your region." />
+      {providersLoading ? (
+        <p className="muted">Loading providers...</p>
+      ) : providersError ? (
+        <p className="muted">No providers available for this region.</p>
+      ) : providerGroups.length === 0 ? (
+        <p className="muted">No providers available for this region.</p>
+      ) : (
+        <div className="provider-groups">
+          {providerGroups.map((group) => (
+            <div key={group.key} className="provider-group">
+              <h4>{providerLabels[group.key]}</h4>
+              <div className="provider-grid">
+                {group.items.map((provider: any) => (
+                  <div key={provider.provider_id} className="provider-chip">
+                    {provider.logo_path ? (
+                      <img
+                        src={`${providerImageBase}${provider.logo_path}`}
+                        alt={provider.provider_name}
+                      />
+                    ) : null}
+                    <span>{provider.provider_name}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );

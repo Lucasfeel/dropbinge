@@ -13,6 +13,7 @@ MOVIE_TTL_SECONDS = 6 * 60 * 60
 TV_TTL_SECONDS = 3 * 60 * 60
 SEASON_TTL_SECONDS = 6 * 60 * 60
 LIST_TTL_SECONDS = 10 * 60
+WATCH_PROVIDERS_TTL_SECONDS = 6 * 60 * 60
 
 _memory_cache = {}
 
@@ -22,6 +23,10 @@ def _use_memory_cache():
         return True
     if has_app_context() and current_app.testing:
         return True
+    if not os.getenv("DATABASE_URL"):
+        required_vars = ["DB_NAME", "DB_USER", "DB_PASSWORD", "DB_HOST", "DB_PORT"]
+        if not all(os.getenv(var) for var in required_vars):
+            return True
     return False
 
 
