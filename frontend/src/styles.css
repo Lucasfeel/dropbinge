@@ -479,6 +479,7 @@ a {
   overflow: hidden;
   aspect-ratio: 2 / 3;
   background: #1a2435;
+  position: relative;
 }
 
 .poster-tile-link {
@@ -491,6 +492,23 @@ a {
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+.poster-completed-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(6, 16, 28, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #f5f6fb;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  pointer-events: none;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
 }
 
 .poster-tile-extra {

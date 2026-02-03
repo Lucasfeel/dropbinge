@@ -83,6 +83,7 @@ export type TitleSummary = {
   date: string | null;
   vote_average: number | null;
   vote_count: number | null;
+  is_completed?: boolean;
 };
 
 export type TitleSummaryResponse = {

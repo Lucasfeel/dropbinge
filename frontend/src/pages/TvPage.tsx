@@ -5,7 +5,7 @@ import { ChipFilterRow } from "../components/ChipFilterRow";
 import { GridSkeleton } from "../components/GridSkeleton";
 import { PosterGrid } from "../components/PosterGrid";
 import { SectionHeader } from "../components/SectionHeader";
-import { fetchTvOnTheAir, fetchTvPopular } from "../api/tmdbLists";
+import { fetchTvCompleted, fetchTvOnTheAir, fetchTvPopular } from "../api/tmdbLists";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 import { followKey, useFollowStore } from "../stores/followStore";
 import type { TitleSummary } from "../types";
@@ -13,13 +13,16 @@ import type { TitleSummary } from "../types";
 const FILTERS = [
   { key: "on-the-air", label: "On The Air" },
   { key: "popular", label: "Popular" },
-  { key: "tracked", label: "My Tracked" },
+  { key: "completed", label: "Completed" },
 ];
+const DEFAULT_FILTER = "on-the-air";
+const FILTER_KEYS = new Set(FILTERS.map((item) => item.key));
 
 export const TvPage = () => {
   const { items, addFollow, removeFollow, isFollowing } = useFollowStore();
   const [params, setParams] = useSearchParams();
-  const filter = params.get("filter") || "on-the-air";
+  const rawFilter = params.get("filter");
+  const filter = rawFilter && FILTER_KEYS.has(rawFilter) ? rawFilter : DEFAULT_FILTER;
   const sort = params.get("sort") || "popularity";
   const [browseItems, setBrowseItems] = useState<TitleSummary[]>([]);
   const [browsePage, setBrowsePage] = useState(1);
@@ -46,6 +49,7 @@ export const TvPage = () => {
 
   const fetcher = useMemo(() => {
     if (filter === "popular") return fetchTvPopular;
+    if (filter === "completed") return fetchTvCompleted;
     return fetchTvOnTheAir;
   }, [filter]);
 
@@ -68,25 +72,18 @@ export const TvPage = () => {
   );
 
   useEffect(() => {
-    if (filter === "tracked") {
-      setBrowseItems(trackedItems);
-      setBrowsePage(1);
-      setTotalPages(null);
-      setError(null);
-      return;
+    if (rawFilter && rawFilter !== filter) {
+      setParams({ filter: DEFAULT_FILTER, sort }, { replace: true });
     }
+  }, [filter, rawFilter, setParams, sort]);
+
+  useEffect(() => {
     setBrowseItems([]);
     setBrowsePage(1);
     setTotalPages(null);
     setError(null);
     loadBrowse(1, true);
-  }, [filter, loadBrowse, trackedItems]);
-
-  useEffect(() => {
-    if (filter === "tracked") {
-      setBrowseItems(trackedItems);
-    }
-  }, [filter, trackedItems]);
+  }, [filter, loadBrowse]);
 
   const sortedBrowse = useMemo(() => {
     if (sort !== "rating") return browseItems;
@@ -110,12 +107,12 @@ export const TvPage = () => {
     [addFollow, isFollowing, removeFollow],
   );
 
-  const hasMore = filter !== "tracked" && (totalPages ? browsePage < totalPages : true);
+  const hasMore = totalPages ? browsePage < totalPages : true;
   const isLoadingMore = loading && browseItems.length > 0;
   const loadMore = useCallback(() => {
-    if (!hasMore || loading || filter === "tracked") return;
+    if (!hasMore || loading) return;
     loadBrowse(browsePage + 1, false);
-  }, [browsePage, filter, hasMore, loadBrowse, loading]);
+  }, [browsePage, hasMore, loadBrowse, loading]);
   const sentinelRef = useInfiniteScroll({ onLoadMore: loadMore, hasMore, loading });
 
   return (
