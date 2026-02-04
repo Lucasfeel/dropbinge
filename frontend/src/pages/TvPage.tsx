@@ -105,7 +105,7 @@ export const TvPage = () => {
     return browseItems;
   }, [browseItems, sort]);
 
-  const hasMore = !error && (totalPages ? browsePage < totalPages : true);
+  const hasMore = !error && (totalPages === null ? true : browsePage < totalPages);
   const isLoadingMore = loading && browseItems.length > 0;
   const loadMore = useCallback(() => {
     if (!hasMore || loading || error) return;
@@ -169,6 +169,13 @@ export const TvPage = () => {
       ) : null}
       {loading && browseItems.length === 0 ? (
         <GridSkeleton count={8} />
+      ) : !error && browseItems.length === 0 ? (
+        <div className="card">
+          <p>No results.</p>
+          {filter === "upcoming" ? (
+            <p className="muted">Upcoming index may be building. Try again later.</p>
+          ) : null}
+        </div>
       ) : (
         <PosterGrid items={sortedBrowse} mediaType="tv" />
       )}
