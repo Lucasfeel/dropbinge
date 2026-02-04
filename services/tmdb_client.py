@@ -113,10 +113,12 @@ def get_movie_details(movie_id, append=None):
     return tmdb_get(f"/movie/{movie_id}", params=params)
 
 
-def get_tv_details(tv_id, append=None):
+def get_tv_details(tv_id, append=None, language=None):
     params = {}
     if append:
         params["append_to_response"] = append
+    if language:
+        params["language"] = language
     return tmdb_get(f"/tv/{tv_id}", params=params)
 
 
@@ -155,6 +157,15 @@ def list_tv_on_the_air(page=1, language=None):
     if language:
         params["language"] = language
     return tmdb_get("/tv/on_the_air", params=params)
+
+
+def list_tv_changes(page=1, start_date=None, end_date=None):
+    params = {"page": page}
+    if start_date:
+        params["start_date"] = start_date
+    if end_date:
+        params["end_date"] = end_date
+    return tmdb_get("/tv/changes", params=params)
 
 
 def list_trending_all_day(page=1, language=None):
