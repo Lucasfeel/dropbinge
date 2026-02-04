@@ -235,7 +235,7 @@ def _full_rebuild_scan(language, target_items):
 def get_upcoming_seasons_page(db, page, language):
     payload = _load_index(db, language)
     if not payload:
-        response = {"page": page, "total_pages": 0, "results": []}
+        response = {"page": 1, "total_pages": 0, "results": []}
         return response, False
     items = payload.get("items") or []
     total_pages = math.ceil(len(items) / PAGE_SIZE) if items else 0
