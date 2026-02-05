@@ -159,6 +159,20 @@ def list_tv_on_the_air(page=1, language=None):
     return tmdb_get("/tv/on_the_air", params=params)
 
 
+def list_tv_top_rated(page=1, language=None):
+    params = {"page": page}
+    if language:
+        params["language"] = language
+    return tmdb_get("/tv/top_rated", params=params)
+
+
+def list_tv_airing_today(page=1, language=None):
+    params = {"page": page}
+    if language:
+        params["language"] = language
+    return tmdb_get("/tv/airing_today", params=params)
+
+
 def list_tv_changes(page=1, start_date=None, end_date=None):
     params = {"page": page}
     if start_date:
@@ -173,6 +187,13 @@ def list_trending_all_day(page=1, language=None):
     if language:
         params["language"] = language
     return tmdb_get("/trending/all/day", params=params)
+
+
+def list_trending_tv_week(page=1, language=None):
+    params = {"page": page}
+    if language:
+        params["language"] = language
+    return tmdb_get("/trending/tv/week", params=params)
 
 
 def discover_movies(params):

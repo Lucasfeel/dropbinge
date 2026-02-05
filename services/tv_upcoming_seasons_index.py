@@ -209,27 +209,123 @@ def _get_tv_on_the_air_page_cached(page, language=None):
     return payload
 
 
+def _get_tv_top_rated_page_cached(page, language=None):
+    query_key = f"page={page}&language={language or ''}"
+    cache_key = tmdb_http_cache.make_cache_key("http:tv_top_rated_raw", query_key=query_key)
+    cached = tmdb_http_cache.get_cached(None, *cache_key)
+    if cached is not None:
+        return cached
+    payload = tmdb_client.list_tv_top_rated(page=page, language=language)
+    tmdb_http_cache.set_cached(
+        None,
+        cache_key[0],
+        cache_key[1],
+        cache_key[2],
+        payload,
+        tmdb_http_cache.LIST_TTL_SECONDS,
+    )
+    return payload
+
+
+def _get_tv_airing_today_page_cached(page, language=None):
+    query_key = f"page={page}&language={language or ''}"
+    cache_key = tmdb_http_cache.make_cache_key("http:tv_airing_today_raw", query_key=query_key)
+    cached = tmdb_http_cache.get_cached(None, *cache_key)
+    if cached is not None:
+        return cached
+    payload = tmdb_client.list_tv_airing_today(page=page, language=language)
+    tmdb_http_cache.set_cached(
+        None,
+        cache_key[0],
+        cache_key[1],
+        cache_key[2],
+        payload,
+        tmdb_http_cache.LIST_TTL_SECONDS,
+    )
+    return payload
+
+
+def _get_tv_trending_week_page_cached(page, language=None):
+    query_key = f"page={page}&language={language or ''}"
+    cache_key = tmdb_http_cache.make_cache_key("http:tv_trending_week_raw", query_key=query_key)
+    cached = tmdb_http_cache.get_cached(None, *cache_key)
+    if cached is not None:
+        return cached
+    payload = tmdb_client.list_trending_tv_week(page=page, language=language)
+    tmdb_http_cache.set_cached(
+        None,
+        cache_key[0],
+        cache_key[1],
+        cache_key[2],
+        payload,
+        tmdb_http_cache.LIST_TTL_SECONDS,
+    )
+    return payload
+
+
 def _full_rebuild_scan(language, target_items):
     items = []
     seen_ids = set()
+    list_errors = []
+    detail_errors = []
+    feeds_scanned = 0
+    pages_scanned = 0
+    processed_tv_ids = 0
     feeds = [
         ("popular", config.TMDB_UPCOMING_FULL_REBUILD_POPULAR_PAGES, _get_tv_popular_page_cached),
         ("on-the-air", config.TMDB_UPCOMING_FULL_REBUILD_ON_THE_AIR_PAGES, _get_tv_on_the_air_page_cached),
+        ("top-rated", config.TMDB_UPCOMING_FULL_REBUILD_TOP_RATED_PAGES, _get_tv_top_rated_page_cached),
+        ("airing-today", config.TMDB_UPCOMING_FULL_REBUILD_AIRING_TODAY_PAGES, _get_tv_airing_today_page_cached),
+        ("trending-week", config.TMDB_UPCOMING_FULL_REBUILD_TRENDING_PAGES, _get_tv_trending_week_page_cached),
     ]
     today_iso = _today_iso()
-    for _, max_pages, fetcher in feeds:
+    for feed_name, max_pages, fetcher in feeds:
+        feeds_scanned += 1
         for page in range(1, max_pages + 1):
-            payload = fetcher(page, language)
+            try:
+                payload = fetcher(page, language)
+            except tmdb_client.TMDBError as exc:
+                list_errors.append({"feed": feed_name, "page": page, "error": exc.__class__.__name__})
+                continue
+            except Exception as exc:
+                list_errors.append({"feed": feed_name, "page": page, "error": str(exc)})
+                continue
+            pages_scanned += 1
             for entry in payload.get("results") or []:
                 tv_id = entry.get("id")
                 if not tv_id or tv_id in seen_ids:
                     continue
                 seen_ids.add(tv_id)
-                details = _get_tv_details_cached(tv_id, language, force_refresh=False)
+                try:
+                    details = _get_tv_details_cached(tv_id, language, force_refresh=False)
+                except tmdb_client.TMDBError as exc:
+                    detail_errors.append({"tv_id": tv_id, "error": exc.__class__.__name__})
+                    continue
+                except Exception as exc:
+                    detail_errors.append({"tv_id": tv_id, "error": str(exc)})
+                    continue
+                if not details:
+                    detail_errors.append({"tv_id": tv_id, "error": "empty_payload"})
+                    continue
+                processed_tv_ids += 1
                 items.extend(_extract_upcoming_seasons(details, today_iso))
                 if len(items) >= target_items:
-                    return _dedupe_sort_trim(items, target_items), len(seen_ids)
-    return _dedupe_sort_trim(items, target_items), len(seen_ids)
+                    return _dedupe_sort_trim(items, target_items), {
+                        "discovered_tv_ids": len(seen_ids),
+                        "processed_tv_ids": processed_tv_ids,
+                        "list_errors": list_errors,
+                        "detail_errors": detail_errors,
+                        "feeds_scanned": feeds_scanned,
+                        "pages_scanned": pages_scanned,
+                    }
+    return _dedupe_sort_trim(items, target_items), {
+        "discovered_tv_ids": len(seen_ids),
+        "processed_tv_ids": processed_tv_ids,
+        "list_errors": list_errors,
+        "detail_errors": detail_errors,
+        "feeds_scanned": feeds_scanned,
+        "pages_scanned": pages_scanned,
+    }
 
 
 def get_upcoming_seasons_page(db, page, language):
@@ -250,7 +346,7 @@ def get_upcoming_seasons_page(db, page, language):
     return response, True
 
 
-def refresh_upcoming_seasons_index(db, language, full_rebuild=False):
+def refresh_upcoming_seasons_index(db, language, full_rebuild=False, force=False):
     start_time = time.perf_counter()
     now_iso = _now_iso()
     existing = _load_index(db, language)
@@ -260,10 +356,33 @@ def refresh_upcoming_seasons_index(db, language, full_rebuild=False):
 
     try:
         if full_rebuild:
-            items, processed_tv_ids = _full_rebuild_scan(
+            items, scan_stats = _full_rebuild_scan(
                 language,
                 config.TMDB_UPCOMING_MAX_ITEMS,
             )
+            if scan_stats.get("discovered_tv_ids", 0) == 0:
+                took_ms = int((time.perf_counter() - start_time) * 1000)
+                return {
+                    "ok": False,
+                    "mode": mode,
+                    "error": "no_candidates",
+                    "items": len(existing_items),
+                    "generated_at": generated_at,
+                    "took_ms": took_ms,
+                    **scan_stats,
+                }
+            if not items and existing_items and not force:
+                took_ms = int((time.perf_counter() - start_time) * 1000)
+                return {
+                    "ok": False,
+                    "mode": mode,
+                    "error": "empty_result_kept_existing",
+                    "kept_existing": True,
+                    "items": len(existing_items),
+                    "generated_at": generated_at,
+                    "took_ms": took_ms,
+                    **scan_stats,
+                }
             payload = {
                 "version": INDEX_VERSION,
                 "language": language,
@@ -281,10 +400,16 @@ def refresh_upcoming_seasons_index(db, language, full_rebuild=False):
             return {
                 "ok": True,
                 "mode": mode,
-                "processed_tv_ids": processed_tv_ids,
+                "processed_tv_ids": scan_stats.get("processed_tv_ids", 0),
+                "discovered_tv_ids": scan_stats.get("discovered_tv_ids", 0),
+                "list_errors": scan_stats.get("list_errors", []),
+                "detail_errors": scan_stats.get("detail_errors", []),
+                "feeds_scanned": scan_stats.get("feeds_scanned", 0),
+                "pages_scanned": scan_stats.get("pages_scanned", 0),
                 "items": len(items),
                 "generated_at": payload["generated_at"],
                 "took_ms": took_ms,
+                "saved": True,
             }
 
         lookback_days = max(1, min(config.TMDB_UPCOMING_CHANGES_LOOKBACK_DAYS, 14))
@@ -300,6 +425,7 @@ def refresh_upcoming_seasons_index(db, language, full_rebuild=False):
             item for item in existing_items if item.get("series_id") not in changed_id_set
         ]
         today_iso = _today_iso()
+        detail_errors = []
         if changed_ids:
             with ThreadPoolExecutor(max_workers=config.TMDB_UPCOMING_DETAIL_WORKERS) as executor:
                 future_map = {
@@ -308,12 +434,33 @@ def refresh_upcoming_seasons_index(db, language, full_rebuild=False):
                 }
                 for future in as_completed(future_map):
                     tv_id = future_map[future]
-                    details = future.result()
+                    try:
+                        details = future.result()
+                    except tmdb_client.TMDBError as exc:
+                        detail_errors.append({"tv_id": tv_id, "error": exc.__class__.__name__})
+                        continue
+                    except Exception as exc:
+                        detail_errors.append({"tv_id": tv_id, "error": str(exc)})
+                        continue
                     if not details:
+                        detail_errors.append({"tv_id": tv_id, "error": "empty_payload"})
                         continue
                     refreshed_items.extend(_extract_upcoming_seasons(details, today_iso))
 
         trimmed = _dedupe_sort_trim(refreshed_items)
+        if not trimmed and existing_items and not force:
+            took_ms = int((time.perf_counter() - start_time) * 1000)
+            return {
+                "ok": False,
+                "mode": mode,
+                "error": "empty_result_kept_existing",
+                "kept_existing": True,
+                "processed_tv_ids": len(changed_ids),
+                "items": len(existing_items),
+                "generated_at": generated_at,
+                "took_ms": took_ms,
+                "detail_errors": detail_errors,
+            }
         payload = {
             "version": INDEX_VERSION,
             "language": language,
@@ -335,6 +482,8 @@ def refresh_upcoming_seasons_index(db, language, full_rebuild=False):
             "items": len(trimmed),
             "generated_at": payload["generated_at"],
             "took_ms": took_ms,
+            "detail_errors": detail_errors,
+            "saved": True,
         }
     except tmdb_client.TMDBRateLimitError:
         logger.warning("tmdb upcoming seasons refresh rate limited")

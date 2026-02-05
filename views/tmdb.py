@@ -807,8 +807,9 @@ def refresh_tv_upcoming_seasons():
     payload = request.get_json(silent=True) or {}
     language = payload.get("language")
     full_rebuild = bool(payload.get("full_rebuild"))
+    force = bool(payload.get("force"))
     stats = tv_upcoming_seasons_index.refresh_upcoming_seasons_index(
-        get_db(), language, full_rebuild=full_rebuild
+        get_db(), language, full_rebuild=full_rebuild, force=force
     )
     status = 200
     if not stats.get("ok"):
