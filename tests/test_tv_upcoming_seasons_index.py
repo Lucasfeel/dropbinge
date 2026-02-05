@@ -62,3 +62,39 @@ def test_dedupe_sort_trim():
     assert len(result) == 2
     assert result[0]["series_id"] == 2
     assert result[1]["series_id"] == 1
+
+
+def test_refresh_keeps_existing_when_empty_result(monkeypatch):
+    existing_payload = {
+        "items": [{"series_id": 1, "season_number": 1, "date": "2025-01-01"}],
+        "generated_at": "2024-01-01T00:00:00Z",
+    }
+    saved_payloads = []
+
+    def fake_load(db, language):
+        return existing_payload
+
+    def fake_save(db, language, payload, ttl_seconds):
+        saved_payloads.append(payload)
+
+    def fake_full_rebuild_scan(language, target_items):
+        return [], {
+            "discovered_tv_ids": 1,
+            "processed_tv_ids": 1,
+            "list_errors": [],
+            "detail_errors": [],
+            "feeds_scanned": 1,
+            "pages_scanned": 1,
+        }
+
+    monkeypatch.setattr(tv_upcoming_seasons_index, "_load_index", fake_load)
+    monkeypatch.setattr(tv_upcoming_seasons_index, "_save_index", fake_save)
+    monkeypatch.setattr(tv_upcoming_seasons_index, "_full_rebuild_scan", fake_full_rebuild_scan)
+
+    stats = tv_upcoming_seasons_index.refresh_upcoming_seasons_index(
+        None, "en", full_rebuild=True, force=False
+    )
+
+    assert stats["error"] == "empty_result_kept_existing"
+    assert stats["kept_existing"] is True
+    assert saved_payloads == []

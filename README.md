@@ -61,7 +61,23 @@ The Docker image includes the built React SPA, so no Node runtime is required in
 pip install -r requirements.txt && python init_db.py && cd frontend && npm install && npm run build
 ```
 
+**Pre-Deploy Command**
+```bash
+python -u init_db.py && python -u scripts/refresh_tv_upcoming_seasons_index.py --full --force --verify-min-items 1
+```
+
 **Start Command**
 ```bash
 gunicorn app:app
 ```
+
+**Required env vars**
+- `DATABASE_URL`
+- `TMDB_BEARER_TOKEN`
+- `ADMIN_REFRESH_TOKEN`
+
+**Optional env vars**
+- `TMDB_UPCOMING_LANGUAGES`
+- `TMDB_UPCOMING_FULL_REBUILD_TOP_RATED_PAGES`
+- `TMDB_UPCOMING_FULL_REBUILD_AIRING_TODAY_PAGES`
+- `TMDB_UPCOMING_FULL_REBUILD_TRENDING_PAGES`
