@@ -10,9 +10,10 @@ import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 import { useFollowStore } from "../stores/followStore";
 import type { TitleSummary } from "../types";
 
+type TvFilter = "on-the-air" | "completed";
+
 const FILTERS = [
   { key: "on-the-air", label: "On The Air" },
-  { key: "upcoming", label: "Upcoming" },
   { key: "completed", label: "Completed" },
 ];
 const DEFAULT_FILTER = "on-the-air";
@@ -22,7 +23,11 @@ export const TvPage = () => {
   const { items } = useFollowStore();
   const [params, setParams] = useSearchParams();
   const rawFilter = params.get("filter");
-  const filter = rawFilter && FILTER_KEYS.has(rawFilter) ? rawFilter : DEFAULT_FILTER;
+  const normalizedFilter = rawFilter === "upcoming" ? DEFAULT_FILTER : rawFilter;
+  const filter =
+    normalizedFilter && FILTER_KEYS.has(normalizedFilter)
+      ? (normalizedFilter as TvFilter)
+      : DEFAULT_FILTER;
   const sort = params.get("sort") || "popularity";
   const [browseItems, setBrowseItems] = useState<TitleSummary[]>([]);
   const [browsePage, setBrowsePage] = useState(1);
@@ -55,17 +60,10 @@ export const TvPage = () => {
       setError(null);
       setLoading(true);
       try {
-        const response = await fetchTvSeasons(
-          nextPage,
-          filter as "on-the-air" | "upcoming" | "completed",
-        );
+        const response = await fetchTvSeasons(nextPage, filter);
         setBrowsePage(response.page);
         setTotalPages(response.total_pages);
-        const results =
-          filter === "upcoming"
-            ? response.results.filter((item) => item.is_completed !== true)
-            : response.results;
-        setBrowseItems((prev) => (replace ? results : [...prev, ...results]));
+        setBrowseItems((prev) => (replace ? response.results : [...prev, ...response.results]));
       } catch (err) {
         setError("Unable to load browse results. Please try again.");
       } finally {
@@ -172,9 +170,6 @@ export const TvPage = () => {
       ) : !error && browseItems.length === 0 ? (
         <div className="card">
           <p>No results.</p>
-          {filter === "upcoming" ? (
-            <p className="muted">Upcoming index may be building. Try again later.</p>
-          ) : null}
         </div>
       ) : (
         <PosterGrid items={sortedBrowse} mediaType="tv" />

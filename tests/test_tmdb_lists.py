@@ -197,34 +197,25 @@ def test_list_movie_out_now_uses_date_window(client, monkeypatch):
     assert body["results"][0]["is_completed"] is True
 
 
-def test_list_tv_seasons_upcoming_filters_future(client, monkeypatch):
-    class FixedDate(date):
-        @classmethod
-        def today(cls):
-            return cls(2024, 1, 10)
-
-    def fake_list_tv_popular(page=1, language=None):
+def test_list_tv_seasons_upcoming_falls_back_to_on_the_air(client, monkeypatch):
+    def fake_list_tv_on_the_air(page=1, language=None):
         return {
             "page": page,
             "total_pages": 1,
-            "results": [{"id": 200, "name": "Future Show"}],
+            "results": [{"id": 200, "name": "Current Show"}],
         }
-
-    def fake_list_tv_on_the_air(page=1, language=None):
-        return {"page": page, "total_pages": 1, "results": []}
 
     def fake_get_tv_details(tv_id):
         return {
             "id": tv_id,
-            "name": "Future Show",
+            "name": "Current Show",
+            "next_episode_to_air": {"season_number": 2, "air_date": "2024-02-01"},
             "seasons": [
-                {"season_number": 1, "name": "S1", "air_date": "2020-01-01"},
+                {"season_number": 1, "name": "S1", "air_date": "2023-01-01"},
                 {"season_number": 2, "name": "S2", "air_date": "2024-02-01"},
             ],
         }
 
-    monkeypatch.setattr(tmdb_views, "date", FixedDate)
-    monkeypatch.setattr(tmdb_client, "list_tv_popular", fake_list_tv_popular)
     monkeypatch.setattr(tmdb_client, "list_tv_on_the_air", fake_list_tv_on_the_air)
     monkeypatch.setattr(tmdb_client, "get_tv_details", fake_get_tv_details)
 
@@ -235,7 +226,6 @@ def test_list_tv_seasons_upcoming_filters_future(client, monkeypatch):
     assert len(body["results"]) == 1
     assert body["results"][0]["season_number"] == 2
     assert body["results"][0]["is_completed"] is False
-    assert 1 <= body["total_pages"] <= 50
 
 
 def test_list_movie_completed_bypasses_cache(client, monkeypatch):
