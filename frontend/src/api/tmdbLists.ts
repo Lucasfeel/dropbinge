@@ -24,7 +24,7 @@ export const fetchTvCompleted = (page = 1) =>
 
 export const fetchTvSeasons = (
   page = 1,
-  list: "on-the-air" | "popular" | "completed" | "upcoming" = "on-the-air",
+  list: "on-the-air" | "popular" | "completed" = "on-the-air",
 ) =>
   apiFetch<TitleSummaryResponse>(
     `/api/tmdb/list/tv/seasons?page=${page}&list=${encodeURIComponent(list)}`,

@@ -12,7 +12,6 @@ import type { TitleSummary } from "../types";
 
 const FILTERS = [
   { key: "on-the-air", label: "On The Air" },
-  { key: "upcoming", label: "Upcoming" },
   { key: "completed", label: "Completed" },
 ];
 const DEFAULT_FILTER = "on-the-air";
@@ -22,7 +21,16 @@ export const TvPage = () => {
   const { items } = useFollowStore();
   const [params, setParams] = useSearchParams();
   const rawFilter = params.get("filter");
-  const filter = rawFilter && FILTER_KEYS.has(rawFilter) ? rawFilter : DEFAULT_FILTER;
+  const normalizedFilter = useMemo(() => {
+    if (rawFilter === "upcoming") {
+      return DEFAULT_FILTER;
+    }
+    if (rawFilter && FILTER_KEYS.has(rawFilter)) {
+      return rawFilter;
+    }
+    return DEFAULT_FILTER;
+  }, [rawFilter]);
+  const filter = normalizedFilter;
   const sort = params.get("sort") || "popularity";
   const [browseItems, setBrowseItems] = useState<TitleSummary[]>([]);
   const [browsePage, setBrowsePage] = useState(1);
@@ -57,15 +65,11 @@ export const TvPage = () => {
       try {
         const response = await fetchTvSeasons(
           nextPage,
-          filter as "on-the-air" | "upcoming" | "completed",
+          filter as "on-the-air" | "completed",
         );
         setBrowsePage(response.page);
         setTotalPages(response.total_pages);
-        const results =
-          filter === "upcoming"
-            ? response.results.filter((item) => item.is_completed !== true)
-            : response.results;
-        setBrowseItems((prev) => (replace ? results : [...prev, ...results]));
+        setBrowseItems((prev) => (replace ? response.results : [...prev, ...response.results]));
       } catch (err) {
         setError("Unable to load browse results. Please try again.");
       } finally {
@@ -116,7 +120,7 @@ export const TvPage = () => {
   return (
     <div className="page tv-page">
       <div className="page-hero">
-        <SectionHeader title="TV" subtitle="Track upcoming seasons and air dates." />
+        <SectionHeader title="TV" subtitle="Track on-the-air seasons and completed series." />
       </div>
       <div className="filter-controls">
         <ChipFilterRow>
@@ -172,9 +176,6 @@ export const TvPage = () => {
       ) : !error && browseItems.length === 0 ? (
         <div className="card">
           <p>No results.</p>
-          {filter === "upcoming" ? (
-            <p className="muted">Upcoming index may be building. Try again later.</p>
-          ) : null}
         </div>
       ) : (
         <PosterGrid items={sortedBrowse} mediaType="tv" />
