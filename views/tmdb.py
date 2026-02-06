@@ -6,11 +6,8 @@ from urllib.parse import urlencode
 
 from flask import Blueprint, jsonify, request
 
-import config
-from database import get_db
 from services import tmdb_client
 from services import tmdb_http_cache
-from services import tv_upcoming_seasons_index
 
 tmdb_bp = Blueprint("tmdb", __name__, url_prefix="/api/tmdb")
 logger = logging.getLogger(__name__)
@@ -192,37 +189,6 @@ def _get_tv_on_the_air_page_cached(page, language=None):
     )
     _log_cache("tv_on_the_air_raw", "MISS", latency_ms)
     return payload
-
-
-def _pick_next_upcoming_season(details, today_iso):
-    seasons = details.get("seasons") or []
-    upcoming = []
-    for season in seasons:
-        season_number = season.get("season_number")
-        if not isinstance(season_number, int) or season_number == 0:
-            continue
-        air_date = season.get("air_date")
-        if not air_date or air_date <= today_iso:
-            continue
-        upcoming.append(season)
-    if not upcoming:
-        next_episode = details.get("next_episode_to_air") or {}
-        next_air_date = next_episode.get("air_date")
-        season_number = next_episode.get("season_number")
-        if next_air_date and next_air_date > today_iso and isinstance(season_number, int):
-            season = next(
-                (entry for entry in seasons if entry.get("season_number") == season_number),
-                None,
-            )
-            if season is None:
-                season = {
-                    "season_number": season_number,
-                    "name": f"Season {season_number}",
-                }
-            season["air_date"] = next_air_date
-            return season
-        return None
-    return min(upcoming, key=lambda season: season.get("air_date") or "")
 
 
 def _enrich_tv_results_with_completion(payload):
@@ -601,23 +567,11 @@ def list_tv_seasons():
     if page is None:
         return _json_response({"error": "Invalid page"}, status=400, cache_status="MISS")
     list_key = request.args.get("list", "on-the-air")
-    if list_key not in {"on-the-air", "popular", "completed", "upcoming"}:
+    if list_key == "upcoming":
+        list_key = "on-the-air"
+    if list_key not in {"on-the-air", "popular", "completed"}:
         list_key = "on-the-air"
     language = request.args.get("language")
-    if list_key == "upcoming":
-        try:
-            payload, index_hit = tv_upcoming_seasons_index.get_upcoming_seasons_page(
-                get_db(), page, language
-            )
-            cache_status = "INDEX_HIT" if index_hit else "INDEX_MISS"
-            return _json_response(payload, cache_status=cache_status)
-        except Exception:
-            logger.exception("tv upcoming seasons index lookup failed")
-            return _json_response(
-                {"error": "internal_error", "message": "Unexpected server error"},
-                status=500,
-                cache_status="MISS",
-            )
     cache_enabled = list_key != "completed"
     cache_key = (
         tmdb_http_cache.make_cache_key(
@@ -796,25 +750,6 @@ def list_tv_seasons():
         return _tmdb_error_response("tmdb_rate_limited", "TMDB rate limit exceeded")
     except (tmdb_client.TMDBUpstreamError, tmdb_client.TMDBRequestError):
         return _tmdb_error_response("tmdb_upstream_error", "TMDB request failed")
-
-
-@tmdb_bp.post("/admin/refresh/tv-upcoming-seasons")
-def refresh_tv_upcoming_seasons():
-    admin_token = config.ADMIN_REFRESH_TOKEN
-    provided = request.headers.get("X-Admin-Token")
-    if not admin_token or not provided or provided != admin_token:
-        return _json_response({"error": "forbidden"}, status=403, cache_status="MISS")
-    payload = request.get_json(silent=True) or {}
-    language = payload.get("language")
-    full_rebuild = bool(payload.get("full_rebuild"))
-    force = bool(payload.get("force"))
-    stats = tv_upcoming_seasons_index.refresh_upcoming_seasons_index(
-        get_db(), language, full_rebuild=full_rebuild, force=force
-    )
-    status = 200
-    if not stats.get("ok"):
-        status = 429 if stats.get("error") == "rate_limited" else 500
-    return _json_response(stats, status=status, cache_status="MISS")
 
 
 @tmdb_bp.get("/list/movie/completed")
