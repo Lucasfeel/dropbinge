@@ -771,3 +771,65 @@ a {
   gap: 12px;
   align-items: center;
 }
+
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px;
+}
+
+.dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 6, 12, 0.72);
+  border: none;
+}
+
+.dialog-panel {
+  position: relative;
+  width: min(460px, 100%);
+  background: #111826;
+  border: 1px solid #1b2436;
+  border-radius: 18px;
+  padding: 16px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+}
+
+.dialog-title {
+  margin: 0 0 6px;
+  font-size: 18px;
+}
+
+.dialog-subtitle {
+  margin: 0 0 12px;
+}
+
+.dialog-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.dialog-error {
+  margin: 0 0 8px;
+  color: #f28b82;
+  font-size: 12px;
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(94px + env(safe-area-inset-bottom));
+  z-index: 70;
+  background: rgba(17, 24, 38, 0.95);
+  border: 1px solid #1b2436;
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-size: 13px;
+}
