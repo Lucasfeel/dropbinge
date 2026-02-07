@@ -13,6 +13,25 @@ DropBinge tracks release date “drops,” status changes, and completion signal
 - `TMDB_READ_ACCESS_TOKEN` (preferred) or `TMDB_API_KEY`
 - `CORS_ALLOW_ORIGINS` (comma-separated or JSON list)
 
+### Email (optional)
+- `EMAIL_ENABLED` (default: `false`)
+- `EMAIL_FROM` (required when `EMAIL_ENABLED=true`)
+- `EMAIL_REPLY_TO` (optional)
+- `APP_BASE_URL` (used for deep links in emails)
+- `SMTP_HOST` (required when `EMAIL_ENABLED=true`)
+- `SMTP_PORT` (default: `587`)
+- `SMTP_USER` (optional)
+- `SMTP_PASSWORD` (optional)
+- `SMTP_USE_TLS` (default: `true`, STARTTLS)
+- `SMTP_USE_SSL` (default: `false`, SMTPS)
+
+To test email template rendering:
+```bash
+pytest -q tests/test_email_templates.py
+```
+
+Optional: for local SMTP testing you can use a tool like MailHog to capture outbound messages.
+
 TMDB `/api/tmdb` endpoints are server-side cached with TTLs and respect upstream 429 rate limiting responses.
 
 ## Backend Setup
