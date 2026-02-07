@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { apiFetch } from "../api";
-import { AlertGateOverlay } from "../components/AlertGateOverlay";
+import { AlertGateModal } from "../components/AlertGateModal";
 import { useAuth } from "../hooks/useAuth";
 import { followKey, useFollowStore } from "../stores/followStore";
 
@@ -90,7 +90,7 @@ export const SeasonDetailsPage = () => {
     window.setTimeout(() => setToast(null), 2200);
   };
 
-  const requestRoles = async (
+  const applyRolesWithGate = async (
     input: {
       mediaType: "movie" | "tv";
       tmdbId: number;
@@ -107,22 +107,9 @@ export const SeasonDetailsPage = () => {
     setRolePending(true);
     try {
       await setRoles(input, roles);
-      showToast("알림설정에 성공하였습니다");
+      showToast("Alert settings saved");
     } finally {
       setRolePending(false);
-    }
-  };
-
-  const handleAuthed = async () => {
-    if (!pendingAction) return;
-    setGateOpen(false);
-    setRolePending(true);
-    try {
-      await setRoles(pendingAction.input, pendingAction.roles);
-      showToast("알림설정에 성공하였습니다");
-    } finally {
-      setRolePending(false);
-      setPendingAction(null);
     }
   };
 
@@ -143,7 +130,7 @@ export const SeasonDetailsPage = () => {
                   className={dropEnabled ? "button secondary" : "button"}
                   disabled={rolePending}
                   onClick={async () => {
-                    await requestRoles(
+                    await applyRolesWithGate(
                       { mediaType: "tv", tmdbId: id, seasonNumber: season, targetType: "tv_season" },
                       { drop: !dropEnabled, binge: bingeEnabled },
                     );
@@ -155,7 +142,7 @@ export const SeasonDetailsPage = () => {
                   className={bingeEnabled ? "button secondary" : "button"}
                   disabled={rolePending}
                   onClick={async () => {
-                    await requestRoles(
+                    await applyRolesWithGate(
                       { mediaType: "tv", tmdbId: id, seasonNumber: season, targetType: "tv_season" },
                       { drop: dropEnabled, binge: !bingeEnabled },
                     );
@@ -201,15 +188,18 @@ export const SeasonDetailsPage = () => {
           </div>
         ))}
       </div>
-      {gateOpen ? (
-        <AlertGateOverlay
-          title="알림 설정"
-          subtitle="계정으로 계속해 주세요."
+      {gateOpen && pendingAction ? (
+        <AlertGateModal
+          open={gateOpen}
+          modeTitle="Enable alerts"
+          pendingAction={pendingAction}
           onClose={() => {
             setGateOpen(false);
             setPendingAction(null);
           }}
-          onAuthed={handleAuthed}
+          onSuccess={() => {
+            showToast("Alert settings saved");
+          }}
         />
       ) : null}
       {toast ? <div className="toast">{toast}</div> : null}
