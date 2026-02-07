@@ -1,0 +1,20 @@
+name: Cron - Dispatch Email Outbox
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  dispatch-email:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger dispatch endpoint
+        env:
+          CRON_DISPATCH_URL: ${{ secrets.CRON_DISPATCH_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -sS -X POST "$CRON_DISPATCH_URL" \
+            -H "X-CRON-SECRET: $CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            --fail

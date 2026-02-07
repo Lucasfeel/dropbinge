@@ -10,6 +10,7 @@ from views.auth import auth_bp
 from views.activity import activity_bp
 from views.follows import follows_bp
 from views.home import home_bp
+from views.internal import internal_bp
 from views.refresh import refresh_bp
 from views.tmdb import tmdb_bp
 
@@ -32,6 +33,7 @@ app.register_blueprint(follows_bp)
 app.register_blueprint(refresh_bp)
 app.register_blueprint(home_bp)
 app.register_blueprint(activity_bp)
+app.register_blueprint(internal_bp)
 
 
 @app.teardown_appcontext

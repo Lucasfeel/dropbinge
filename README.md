@@ -31,6 +31,10 @@ DropBinge tracks release date “drops,” status changes, and completion signal
 - `EMAIL_DISPATCH_BACKOFF_MAX_SECONDS` (default: `3600`)
 - `EMAIL_DISPATCH_DRY_RUN` (default: `false`)
 - `EMAIL_DISPATCH_LOOP_SECONDS` (default: `30`)
+- `CRON_SECRET` (required for internal cron endpoints)
+- `CRON_DISPATCH_BATCH_SIZE` (default: `EMAIL_DISPATCH_BATCH_SIZE`)
+- `CRON_REFRESH_LIMIT_USERS` (optional limit for internal refresh)
+- `CRON_REFRESH_LIMIT_FOLLOWS` (optional limit for internal refresh)
 
 To test email template rendering:
 ```bash
@@ -43,6 +47,22 @@ To run the email outbox dispatcher once:
 ```bash
 python workers/dispatch_email_outbox.py --once
 ```
+
+### Internal cron endpoints
+The app exposes internal endpoints intended for scheduled triggers. Protect them with `CRON_SECRET` and send it as the `X-CRON-SECRET` header.
+
+- `POST /api/internal/dispatch-email`
+- `POST /api/internal/refresh-all?limit_users=...&limit_follows=...` (optional query limits)
+
+If `CRON_SECRET` is not set, the endpoints return `503` with a configuration error. Invalid or missing headers return `401`.
+
+### GitHub Actions scheduling (optional)
+Use GitHub Actions to invoke the internal endpoints. Configure secrets:
+- `CRON_SECRET`
+- `CRON_DISPATCH_URL` (full URL to `/api/internal/dispatch-email`)
+- `CRON_REFRESH_URL` (full URL to `/api/internal/refresh-all`)
+
+Dispatch is idempotent via outbox unique keys; failures are retried with backoff and stale `sending` rows are requeued automatically.
 
 TMDB `/api/tmdb` endpoints are server-side cached with TTLs and respect upstream 429 rate limiting responses.
 

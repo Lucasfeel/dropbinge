@@ -1,0 +1,20 @@
+name: Cron - Refresh All Follows
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  refresh-all:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger refresh endpoint
+        env:
+          CRON_REFRESH_URL: ${{ secrets.CRON_REFRESH_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -sS -X POST "$CRON_REFRESH_URL" \
+            -H "X-CRON-SECRET: $CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            --fail
