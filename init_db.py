@@ -121,7 +121,12 @@ def init_db():
             payload JSONB NOT NULL,
             status TEXT NOT NULL DEFAULT 'pending',
             created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-            sent_at TIMESTAMP NULL
+            sent_at TIMESTAMP NULL,
+            attempt_count INT NOT NULL DEFAULT 0,
+            last_attempt_at TIMESTAMP NULL,
+            last_error TEXT NULL,
+            locked_at TIMESTAMP NULL,
+            next_attempt_at TIMESTAMP NULL
         );
         """
     )
@@ -130,6 +135,41 @@ def init_db():
         """
         ALTER TABLE notification_outbox
         ADD COLUMN IF NOT EXISTS change_event_id INT NULL;
+        """
+    )
+
+    cursor.execute(
+        """
+        ALTER TABLE notification_outbox
+        ADD COLUMN IF NOT EXISTS attempt_count INT NOT NULL DEFAULT 0;
+        """
+    )
+
+    cursor.execute(
+        """
+        ALTER TABLE notification_outbox
+        ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMP NULL;
+        """
+    )
+
+    cursor.execute(
+        """
+        ALTER TABLE notification_outbox
+        ADD COLUMN IF NOT EXISTS last_error TEXT NULL;
+        """
+    )
+
+    cursor.execute(
+        """
+        ALTER TABLE notification_outbox
+        ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP NULL;
+        """
+    )
+
+    cursor.execute(
+        """
+        ALTER TABLE notification_outbox
+        ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMP NULL;
         """
     )
 
@@ -161,6 +201,13 @@ def init_db():
         """
         CREATE INDEX IF NOT EXISTS notification_outbox_status_channel_created_at_idx
         ON notification_outbox (status, channel, created_at);
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS notification_outbox_channel_status_next_attempt_idx
+        ON notification_outbox (channel, status, next_attempt_at, created_at);
         """
     )
 

@@ -1,3 +1,6 @@
+import html
+
+
 def _target_label(target_type, season_number):
     if target_type == "movie":
         return "Movie"
@@ -85,11 +88,13 @@ def build_email_message(outbox_payload, *, app_base_url=None):
     lines.append("You are receiving this because you follow this title in DropBinge.")
     text = "\n".join(lines)
 
-    html_lines = [f"<p>{line}</p>" for line in lines]
-    if deep_link:
-        html_lines = html_lines[:-2] + [
-            f'<p>Link: <a href="{deep_link}">{deep_link}</a></p>'
-        ] + html_lines[-2:]
+    html_lines = []
+    for line in lines:
+        if deep_link and line.startswith("Link: "):
+            escaped_link = html.escape(deep_link, quote=True)
+            html_lines.append(f'<p>Link: <a href="{escaped_link}">{escaped_link}</a></p>')
+        else:
+            html_lines.append(f"<p>{html.escape(line)}</p>")
     html = "\n".join(html_lines)
 
     return {"subject": subject, "text": text, "html": html}
