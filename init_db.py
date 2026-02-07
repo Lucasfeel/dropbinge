@@ -116,12 +116,51 @@ def init_db():
             id SERIAL PRIMARY KEY,
             user_id INT NOT NULL,
             follow_id INT NOT NULL,
+            change_event_id INT NULL,
             channel TEXT NOT NULL,
             payload JSONB NOT NULL,
             status TEXT NOT NULL DEFAULT 'pending',
             created_at TIMESTAMP NOT NULL DEFAULT NOW(),
             sent_at TIMESTAMP NULL
         );
+        """
+    )
+
+    cursor.execute(
+        """
+        ALTER TABLE notification_outbox
+        ADD COLUMN IF NOT EXISTS change_event_id INT NULL;
+        """
+    )
+
+    cursor.execute(
+        """
+        DO $$
+        BEGIN
+            ALTER TABLE notification_outbox
+            ADD CONSTRAINT notification_outbox_change_event_id_fkey
+            FOREIGN KEY (change_event_id)
+            REFERENCES change_events(id)
+            ON DELETE CASCADE;
+        EXCEPTION
+            WHEN duplicate_object THEN
+                NULL;
+        END
+        $$;
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS notification_outbox_change_event_channel_key
+        ON notification_outbox (change_event_id, channel);
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS notification_outbox_status_channel_created_at_idx
+        ON notification_outbox (status, channel, created_at);
         """
     )
 

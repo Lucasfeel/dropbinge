@@ -46,18 +46,33 @@ def test_refresh_emits_date_set_event(client, monkeypatch):
     assert refresh_resp.status_code == 200
 
     cursor.execute(
-        "SELECT event_type FROM change_events WHERE user_id = %s AND follow_id = %s;",
+        """
+        SELECT id, event_type
+        FROM change_events
+        WHERE user_id = %s AND follow_id = %s;
+        """,
         (user_id, follow_id),
     )
-    events = cursor.fetchall()
-    assert any(event["event_type"] == "date_set" for event in events)
+    event_row = cursor.fetchone()
+    assert event_row is not None
+    assert event_row["event_type"] == "date_set"
 
     cursor.execute(
-        "SELECT channel FROM notification_outbox WHERE user_id = %s AND follow_id = %s;",
+        """
+        SELECT channel, change_event_id, payload
+        FROM notification_outbox
+        WHERE user_id = %s AND follow_id = %s;
+        """,
         (user_id, follow_id),
     )
-    outbox = cursor.fetchall()
-    assert any(row["channel"] == "email" for row in outbox)
+    outbox_row = cursor.fetchone()
+    assert outbox_row is not None
+    assert outbox_row["channel"] == "email"
+    assert outbox_row["change_event_id"] is not None
+    assert outbox_row["change_event_id"] == event_row["id"]
+    assert outbox_row["payload"]["event_type"] == "date_set"
+    assert outbox_row["payload"]["target_type"] == "movie"
+    assert outbox_row["payload"]["tmdb_id"] == 555
 
     cursor.close()
     conn.close()
