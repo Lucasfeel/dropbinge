@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { apiFetch } from "../api";
-import { AlertGateOverlay } from "../components/AlertGateOverlay";
+import { AlertGateModal } from "../components/AlertGateModal";
 import { PosterCard } from "../components/PosterCard";
 import { SectionHeader } from "../components/SectionHeader";
 import { useAuth } from "../hooks/useAuth";
@@ -143,7 +143,7 @@ export const DetailsPage = () => {
     window.setTimeout(() => setToast(null), 2200);
   };
 
-  const requestRoles = async (
+  const applyRolesWithGate = async (
     input: {
       mediaType: "movie" | "tv";
       tmdbId: number;
@@ -160,22 +160,9 @@ export const DetailsPage = () => {
     setRolePending(true);
     try {
       await setRoles(input, roles);
-      showToast("알림설정에 성공하였습니다");
+      showToast("Alert settings saved");
     } finally {
       setRolePending(false);
-    }
-  };
-
-  const handleAuthed = async () => {
-    if (!pendingAction) return;
-    setGateOpen(false);
-    setRolePending(true);
-    try {
-      await setRoles(pendingAction.input, pendingAction.roles);
-      showToast("알림설정에 성공하였습니다");
-    } finally {
-      setRolePending(false);
-      setPendingAction(null);
     }
   };
 
@@ -207,7 +194,10 @@ export const DetailsPage = () => {
                 className={dropEnabled ? "button secondary" : "button"}
                 disabled={rolePending}
                 onClick={async () => {
-                  await requestRoles({ mediaType: "movie", tmdbId: id }, { drop: !dropEnabled });
+                  await applyRolesWithGate(
+                    { mediaType: "movie", tmdbId: id },
+                    { drop: !dropEnabled },
+                  );
                 }}
               >
                 Drop
@@ -218,7 +208,7 @@ export const DetailsPage = () => {
                   className={dropEnabled ? "button secondary" : "button"}
                   disabled={rolePending}
                   onClick={async () => {
-                    await requestRoles(
+                    await applyRolesWithGate(
                       { mediaType: "tv", tmdbId: id, targetType: "tv_full" },
                       { drop: !dropEnabled, binge: bingeEnabled },
                     );
@@ -230,7 +220,7 @@ export const DetailsPage = () => {
                   className={bingeEnabled ? "button secondary" : "button"}
                   disabled={rolePending}
                   onClick={async () => {
-                    await requestRoles(
+                    await applyRolesWithGate(
                       { mediaType: "tv", tmdbId: id, targetType: "tv_full" },
                       { drop: dropEnabled, binge: !bingeEnabled },
                     );
@@ -322,15 +312,18 @@ export const DetailsPage = () => {
           ))}
         </div>
       )}
-      {gateOpen ? (
-        <AlertGateOverlay
-          title="알림 설정"
-          subtitle="계정으로 계속해 주세요."
+      {gateOpen && pendingAction ? (
+        <AlertGateModal
+          open={gateOpen}
+          modeTitle="Enable alerts"
+          pendingAction={pendingAction}
           onClose={() => {
             setGateOpen(false);
             setPendingAction(null);
           }}
-          onAuthed={handleAuthed}
+          onSuccess={() => {
+            showToast("Alert settings saved");
+          }}
         />
       ) : null}
       {toast ? <div className="toast">{toast}</div> : null}

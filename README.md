@@ -66,6 +66,24 @@ Dispatch is idempotent via outbox unique keys; failures are retried with backoff
 
 TMDB `/api/tmdb` endpoints are server-side cached with TTLs and respect upstream 429 rate limiting responses.
 
+### Public email-only subscribe endpoint
+Email-only subscriptions create (or reuse) a user with a null password hash and attach follow preferences without authentication.
+
+- `POST /api/public/subscribe-email`
+- Returns `409` with `{ "error": "login_required" }` if the email already has a password-based account.
+- Caveat: there is no double opt-in yet, so email-only subscriptions can be used to spam addresses.
+
+Request JSON:
+```json
+{
+  "email": "user@example.com",
+  "target_type": "movie",
+  "tmdb_id": 123,
+  "season_number": null,
+  "roles": { "drop": true, "binge": false }
+}
+```
+
 ## Backend Setup
 ```bash
 pip install -r requirements.txt

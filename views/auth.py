@@ -17,16 +17,23 @@ def register():
 
     db = get_db()
     cursor = get_cursor(db)
-    cursor.execute("SELECT id FROM users WHERE email = %s;", (email,))
-    if cursor.fetchone():
-        return jsonify({"error": "Email already registered."}), 409
-
+    cursor.execute("SELECT id, password_hash FROM users WHERE email = %s;", (email,))
+    user = cursor.fetchone()
     password_hash = auth_service.hash_password(password)
-    cursor.execute(
-        "INSERT INTO users (email, password_hash) VALUES (%s, %s) RETURNING id;",
-        (email, password_hash),
-    )
-    user_id = cursor.fetchone()["id"]
+    if user:
+        if user["password_hash"]:
+            return jsonify({"error": "Email already registered."}), 409
+        cursor.execute(
+            "UPDATE users SET password_hash = %s WHERE id = %s;",
+            (password_hash, user["id"]),
+        )
+        user_id = user["id"]
+    else:
+        cursor.execute(
+            "INSERT INTO users (email, password_hash) VALUES (%s, %s) RETURNING id;",
+            (email, password_hash),
+        )
+        user_id = cursor.fetchone()["id"]
     db.commit()
     token = auth_service.generate_token(user_id, email)
     return jsonify({"token": token, "user": {"id": user_id, "email": email}})

@@ -799,6 +799,14 @@ a {
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
 }
 
+.dialog-panel p {
+  margin: 0 0 12px;
+}
+
+.dialog-panel .field + .field {
+  margin-top: 10px;
+}
+
 .dialog-title {
   margin: 0 0 6px;
   font-size: 18px;
