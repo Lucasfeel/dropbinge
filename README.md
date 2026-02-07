@@ -13,6 +13,37 @@ DropBinge tracks release date “drops,” status changes, and completion signal
 - `TMDB_READ_ACCESS_TOKEN` (preferred) or `TMDB_API_KEY`
 - `CORS_ALLOW_ORIGINS` (comma-separated or JSON list)
 
+### Email (optional)
+- `EMAIL_ENABLED` (default: `false`)
+- `EMAIL_FROM` (required when `EMAIL_ENABLED=true`)
+- `EMAIL_REPLY_TO` (optional)
+- `APP_BASE_URL` (used for deep links in emails)
+- `SMTP_HOST` (required when `EMAIL_ENABLED=true`)
+- `SMTP_PORT` (default: `587`)
+- `SMTP_USER` (optional)
+- `SMTP_PASSWORD` (optional)
+- `SMTP_USE_TLS` (default: `true`, STARTTLS)
+- `SMTP_USE_SSL` (default: `false`, SMTPS)
+- `EMAIL_DISPATCH_BATCH_SIZE` (default: `25`)
+- `EMAIL_DISPATCH_MAX_ATTEMPTS` (default: `5`)
+- `EMAIL_DISPATCH_STALE_SENDING_MINUTES` (default: `15`)
+- `EMAIL_DISPATCH_BACKOFF_BASE_SECONDS` (default: `60`)
+- `EMAIL_DISPATCH_BACKOFF_MAX_SECONDS` (default: `3600`)
+- `EMAIL_DISPATCH_DRY_RUN` (default: `false`)
+- `EMAIL_DISPATCH_LOOP_SECONDS` (default: `30`)
+
+To test email template rendering:
+```bash
+pytest -q tests/test_email_templates.py
+```
+
+Optional: for local SMTP testing you can use a tool like MailHog to capture outbound messages.
+
+To run the email outbox dispatcher once:
+```bash
+python workers/dispatch_email_outbox.py --once
+```
+
 TMDB `/api/tmdb` endpoints are server-side cached with TTLs and respect upstream 429 rate limiting responses.
 
 ## Backend Setup

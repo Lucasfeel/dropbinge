@@ -130,19 +130,41 @@ def _insert_event(cursor, user_id, follow_id, event_type, payload):
     return cursor.fetchone()["id"]
 
 
-def _enqueue_notifications(cursor, user_id, follow_id, event_type, payload, prefs):
+def _enqueue_notifications(
+    cursor, user_id, follow, event_type, event_payload, prefs, *, change_event_id, tmdb_payload
+):
     channels = []
     if prefs.get("channel_email"):
         channels.append("email")
     if prefs.get("channel_whatsapp"):
         channels.append("whatsapp")
+    if follow["target_type"] == "movie":
+        title = tmdb_payload.get("title")
+    else:
+        title = tmdb_payload.get("name")
     for channel in channels:
         cursor.execute(
             """
-            INSERT INTO notification_outbox (user_id, follow_id, channel, payload)
-            VALUES (%s, %s, %s, %s);
+            INSERT INTO notification_outbox (user_id, follow_id, change_event_id, channel, payload)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (change_event_id, channel) DO NOTHING;
             """,
-            (user_id, follow_id, channel, Json({"event_type": event_type, **payload})),
+            (
+                user_id,
+                follow["id"],
+                change_event_id,
+                channel,
+                Json(
+                    {
+                        "event_type": event_type,
+                        "event_payload": event_payload,
+                        "target_type": follow["target_type"],
+                        "tmdb_id": follow["tmdb_id"],
+                        "season_number": follow["season_number"],
+                        "title": title,
+                    }
+                ),
+            ),
         )
 
 
@@ -155,22 +177,22 @@ def refresh_follow(conn, follow, state, prefs, *, force_fetch=False, emit_events
         cached = tmdb_tracking_cache.get_tracking_cache(conn, media_type, tmdb_id, season_number)
 
     if cached:
-        payload = cached["payload"]
+        tmdb_payload = cached["payload"]
         cache_fields = cached
         previous = cached
     else:
         if target_type == "movie":
-            payload = tmdb_client.get_movie_details(tmdb_id)
+            tmdb_payload = tmdb_client.get_movie_details(tmdb_id)
         elif target_type == "tv_full":
-            payload = tmdb_client.get_tv_details(tmdb_id)
+            tmdb_payload = tmdb_client.get_tv_details(tmdb_id)
         elif target_type == "tv_season":
-            payload = tmdb_client.get_tv_season_details(tmdb_id, season_number)
+            tmdb_payload = tmdb_client.get_tv_season_details(tmdb_id, season_number)
         else:
             raise ValueError(f"Unknown target_type {target_type}")
 
-        cache_fields = _extract_tracking_fields(target_type, payload)
+        cache_fields = _extract_tracking_fields(target_type, tmdb_payload)
         ttl_seconds = tmdb_tracking_cache.compute_tracking_ttl_seconds(
-            media_type, payload, follow["target_type"]
+            media_type, tmdb_payload, follow["target_type"]
         )
         previous = _fetch_existing_cache(conn, media_type, tmdb_id, season_number)
         tmdb_tracking_cache.upsert_tracking_cache(
@@ -178,7 +200,7 @@ def refresh_follow(conn, follow, state, prefs, *, force_fetch=False, emit_events
             media_type,
             tmdb_id,
             season_number,
-            payload,
+            tmdb_payload,
             cache_fields,
             ttl_seconds,
         )
@@ -202,8 +224,17 @@ def refresh_follow(conn, follow, state, prefs, *, force_fetch=False, emit_events
     def emit(event_type, payload):
         if event_type in date_event_types and not prefs.get("notify_date_changes", True):
             return
-        _insert_event(cursor, follow["user_id"], follow["id"], event_type, payload)
-        _enqueue_notifications(cursor, follow["user_id"], follow["id"], event_type, payload, prefs)
+        event_id = _insert_event(cursor, follow["user_id"], follow["id"], event_type, payload)
+        _enqueue_notifications(
+            cursor,
+            follow["user_id"],
+            follow,
+            event_type,
+            payload,
+            prefs,
+            change_event_id=event_id,
+            tmdb_payload=tmdb_payload,
+        )
         events.append(event_type)
 
     if target_type == "movie":
