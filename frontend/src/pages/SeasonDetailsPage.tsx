@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { apiFetch } from "../api";
+import { AlertGateOverlay } from "../components/AlertGateOverlay";
+import { useAuth } from "../hooks/useAuth";
 import { followKey, useFollowStore } from "../stores/followStore";
 
 const IMG_BASE = "https://image.tmdb.org/t/p/w500";
@@ -13,7 +15,19 @@ export const SeasonDetailsPage = () => {
   const [details, setDetails] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const { getItemByKey, setRoles } = useFollowStore();
+  const { isAuthenticated } = useAuth();
   const [rolePending, setRolePending] = useState(false);
+  const [gateOpen, setGateOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState<{
+    input: {
+      mediaType: "movie" | "tv";
+      tmdbId: number;
+      seasonNumber?: number | null;
+      targetType?: "movie" | "tv_full" | "tv_season";
+    };
+    roles: { drop: boolean; binge?: boolean };
+  } | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
   const id = Number(tmdbId);
   const season = Number(seasonNumber);
@@ -71,6 +85,47 @@ export const SeasonDetailsPage = () => {
     episodeDates.length > 0 && !episodeDates.some((airDate: string) => airDate > todayIso());
   const canRemove = dropEnabled || bingeEnabled;
 
+  const showToast = (message: string) => {
+    setToast(message);
+    window.setTimeout(() => setToast(null), 2200);
+  };
+
+  const requestRoles = async (
+    input: {
+      mediaType: "movie" | "tv";
+      tmdbId: number;
+      seasonNumber?: number | null;
+      targetType?: "movie" | "tv_full" | "tv_season";
+    },
+    roles: { drop: boolean; binge?: boolean },
+  ) => {
+    if (!isAuthenticated && (roles.drop || roles.binge)) {
+      setPendingAction({ input, roles });
+      setGateOpen(true);
+      return;
+    }
+    setRolePending(true);
+    try {
+      await setRoles(input, roles);
+      showToast("알림설정에 성공하였습니다");
+    } finally {
+      setRolePending(false);
+    }
+  };
+
+  const handleAuthed = async () => {
+    if (!pendingAction) return;
+    setGateOpen(false);
+    setRolePending(true);
+    try {
+      await setRoles(pendingAction.input, pendingAction.roles);
+      showToast("알림설정에 성공하였습니다");
+    } finally {
+      setRolePending(false);
+      setPendingAction(null);
+    }
+  };
+
   return (
     <div className="page">
       <div className="detail-hero">
@@ -88,15 +143,10 @@ export const SeasonDetailsPage = () => {
                   className={dropEnabled ? "button secondary" : "button"}
                   disabled={rolePending}
                   onClick={async () => {
-                    setRolePending(true);
-                    try {
-                      await setRoles(
-                        { mediaType: "tv", tmdbId: id, seasonNumber: season, targetType: "tv_season" },
-                        { drop: !dropEnabled, binge: bingeEnabled },
-                      );
-                    } finally {
-                      setRolePending(false);
-                    }
+                    await requestRoles(
+                      { mediaType: "tv", tmdbId: id, seasonNumber: season, targetType: "tv_season" },
+                      { drop: !dropEnabled, binge: bingeEnabled },
+                    );
                   }}
                 >
                   Drop
@@ -105,15 +155,10 @@ export const SeasonDetailsPage = () => {
                   className={bingeEnabled ? "button secondary" : "button"}
                   disabled={rolePending}
                   onClick={async () => {
-                    setRolePending(true);
-                    try {
-                      await setRoles(
-                        { mediaType: "tv", tmdbId: id, seasonNumber: season, targetType: "tv_season" },
-                        { drop: dropEnabled, binge: !bingeEnabled },
-                      );
-                    } finally {
-                      setRolePending(false);
-                    }
+                    await requestRoles(
+                      { mediaType: "tv", tmdbId: id, seasonNumber: season, targetType: "tv_season" },
+                      { drop: dropEnabled, binge: !bingeEnabled },
+                    );
                   }}
                 >
                   Binge
@@ -156,6 +201,18 @@ export const SeasonDetailsPage = () => {
           </div>
         ))}
       </div>
+      {gateOpen ? (
+        <AlertGateOverlay
+          title="알림 설정"
+          subtitle="계정으로 계속해 주세요."
+          onClose={() => {
+            setGateOpen(false);
+            setPendingAction(null);
+          }}
+          onAuthed={handleAuthed}
+        />
+      ) : null}
+      {toast ? <div className="toast">{toast}</div> : null}
     </div>
   );
 };
