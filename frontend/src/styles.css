@@ -332,6 +332,18 @@ a {
   font-weight: 600;
 }
 
+.role-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.role-btn-icon {
+  width: 14px;
+  height: 14px;
+  opacity: 0.9;
+}
+
 .button.secondary {
   background: #1b2436;
   color: #eef0f6;
@@ -341,6 +353,21 @@ a {
   background: transparent;
   color: #eef0f6;
   border: 1px solid #1f2b40;
+}
+
+.inline-link {
+  margin-top: 10px;
+  background: none;
+  border: none;
+  color: #cdd6ff;
+  padding: 0;
+  cursor: pointer;
+  font-weight: 600;
+  text-align: left;
+}
+
+.inline-link:hover {
+  color: #eef0f6;
 }
 
 .button.tiny {

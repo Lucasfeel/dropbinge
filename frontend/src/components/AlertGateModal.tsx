@@ -40,7 +40,7 @@ export const AlertGateModal = ({
 }: AlertGateModalProps) => {
   const { login, register } = useAuth();
   const { setRoles } = useFollowStore();
-  const [tab, setTab] = useState<"choose" | "email" | "auth">("choose");
+  const [tab, setTab] = useState<"email" | "auth">("auth");
   const [email, setEmail] = useState("");
   const [authEmail, setAuthEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -50,7 +50,7 @@ export const AlertGateModal = ({
   useEffect(() => {
     if (!open) return;
     const savedEmail = window.localStorage.getItem(STORAGE_KEY) || "";
-    setTab("choose");
+    setTab("auth");
     setEmail(savedEmail);
     setAuthEmail(savedEmail);
     setPassword("");
@@ -136,20 +136,8 @@ export const AlertGateModal = ({
       <button className="dialog-backdrop" type="button" aria-label="Close" onClick={onClose} />
       <div className="dialog-panel" role="dialog" aria-modal="true">
         <h3 className="dialog-title">{modeTitle}</h3>
-        {tab === "choose" ? (
-          <>
-            <p>Choose how you want to enable alerts.</p>
-            <div className="dialog-actions">
-              <button className="button" type="button" onClick={() => setTab("email")}>
-                Continue with Email
-              </button>
-              <button className="button secondary" type="button" onClick={() => setTab("auth")}>
-                Log in
-              </button>
-            </div>
-            <p className="muted">Email-only alerts don’t require a password.</p>
-          </>
-        ) : tab === "email" ? (
+        <p className="muted">Log in to manage alerts, or use email-only.</p>
+        {tab === "email" ? (
           <form onSubmit={handleEmailSubmit}>
             <div className="field">
               <label htmlFor="alert-gate-email">Email</label>
@@ -167,18 +155,19 @@ export const AlertGateModal = ({
               <button className="button" type="submit" disabled={loading}>
                 {loading ? "Submitting..." : "Enable alerts"}
               </button>
-              <button
-                className="button ghost"
-                type="button"
-                onClick={() => {
-                  setTab("choose");
-                  setError(null);
-                }}
-                disabled={loading}
-              >
-                Back
-              </button>
             </div>
+            <button
+              className="inline-link"
+              type="button"
+              onClick={() => {
+                setTab("auth");
+                setError(null);
+              }}
+              disabled={loading}
+            >
+              Back to log in
+            </button>
+            <p className="muted">Email-only alerts don’t require a password.</p>
           </form>
         ) : (
           <form
@@ -209,6 +198,17 @@ export const AlertGateModal = ({
                 autoComplete="current-password"
               />
             </div>
+            <button
+              className="inline-link"
+              type="button"
+              onClick={() => {
+                setTab("email");
+                setError(null);
+              }}
+              disabled={loading}
+            >
+              Or continue with email-only
+            </button>
             {error ? <p className="dialog-error">{error}</p> : null}
             <div className="dialog-actions">
               <button className="button" type="submit" disabled={loading}>
@@ -221,17 +221,6 @@ export const AlertGateModal = ({
                 onClick={() => handleAuth("register")}
               >
                 Sign up
-              </button>
-              <button
-                className="button ghost"
-                type="button"
-                onClick={() => {
-                  setTab("choose");
-                  setError(null);
-                }}
-                disabled={loading}
-              >
-                Back
               </button>
             </div>
           </form>

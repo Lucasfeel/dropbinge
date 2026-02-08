@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 
 import { apiFetch } from "../api";
 import { AlertGateModal } from "../components/AlertGateModal";
+import { BellIcon } from "../components/icons/BellIcon";
 import { useAuth } from "../hooks/useAuth";
 import { followKey, useFollowStore } from "../stores/followStore";
 
@@ -127,7 +128,7 @@ export const SeasonDetailsPage = () => {
             {isCompleted ? null : (
               <>
                 <button
-                  className={dropEnabled ? "button secondary" : "button"}
+                  className={`role-btn ${dropEnabled ? "button secondary" : "button"}`}
                   disabled={rolePending}
                   onClick={async () => {
                     await applyRolesWithGate(
@@ -136,10 +137,11 @@ export const SeasonDetailsPage = () => {
                     );
                   }}
                 >
-                  Drop
+                  <BellIcon className="role-btn-icon" />
+                  <span>Drop</span>
                 </button>
                 <button
-                  className={bingeEnabled ? "button secondary" : "button"}
+                  className={`role-btn ${bingeEnabled ? "button secondary" : "button"}`}
                   disabled={rolePending}
                   onClick={async () => {
                     await applyRolesWithGate(
@@ -148,7 +150,8 @@ export const SeasonDetailsPage = () => {
                     );
                   }}
                 >
-                  Binge
+                  <BellIcon className="role-btn-icon" />
+                  <span>Binge</span>
                 </button>
               </>
             )}
