@@ -83,8 +83,8 @@ a {
   position: sticky;
   top: 0;
   z-index: 20;
-  background: rgba(10, 14, 22, 0.85);
-  backdrop-filter: blur(12px);
+  background: #0b0f1a;
+  backdrop-filter: none;
   padding: 14px 0;
 }
 
@@ -100,7 +100,7 @@ a {
 }
 
 .brand-logo img {
-  height: 36px;
+  height: 32px;
 }
 
 .top-header-actions {
@@ -156,7 +156,7 @@ a {
   }
 
   .brand-logo img {
-    height: 32px;
+    height: 28px;
   }
 
   .top-header-actions {

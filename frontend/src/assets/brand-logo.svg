@@ -1,14 +1,14 @@
-<svg width="206" height="40" viewBox="0 0 206 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <circle cx="16" cy="20" r="12.5" fill="#F4F5FF" />
-  <path d="M10.4 20h11.2" stroke="#0F1726" stroke-width="2.8" stroke-linecap="round" />
+<svg width="184" height="36" viewBox="0 0 184 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="14.5" cy="18" r="10.5" fill="#F4F5FF" />
+  <path d="M9.8 18h9.4" stroke="#0F1726" stroke-width="2.4" stroke-linecap="round" />
   <text
-    x="37"
-    y="28.5"
+    x="31"
+    y="25.2"
     fill="#F4F5FF"
     font-family="Inter, Segoe UI, Arial, sans-serif"
-    font-size="28"
-    font-weight="700"
-    letter-spacing="-0.4"
+    font-size="23"
+    font-weight="600"
+    letter-spacing="-0.25"
   >
     DropBinge
   </text>
