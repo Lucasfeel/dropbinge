@@ -4,12 +4,13 @@
 
 :root {
   color-scheme: dark;
+  --app-bg: radial-gradient(circle at top, #121827, #0b0f1a 40%, #07090f 100%);
 }
 
 body {
   margin: 0;
   font-family: "Inter", system-ui, sans-serif;
-  background: radial-gradient(circle at top, #121827, #0b0f1a 40%, #07090f 100%);
+  background: var(--app-bg);
   color: #f5f6fb;
 }
 
@@ -83,7 +84,7 @@ a {
   position: sticky;
   top: 0;
   z-index: 20;
-  background: transparent;
+  background: var(--app-bg);
   backdrop-filter: none;
   padding: 14px 0;
 }
