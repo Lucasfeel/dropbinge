@@ -40,25 +40,22 @@ export const HomePage = () => {
       try {
         const firstPage = await fetchTrendingAllDay(1);
         if (!active) return;
-
         const firstPass = pickTrendingItems(firstPage.results, 12);
-        setTrendItems(firstPass);
-        setTrendLoading(false);
+        let finalList = firstPass;
 
-        if (firstPass.length >= 12) {
-          return;
-        }
-
-        try {
-          const secondPage = await fetchTrendingAllDay(2);
-          if (!active) return;
-          const combined = pickTrendingItems([...firstPage.results, ...secondPage.results], 12);
-          setTrendItems(combined);
-        } catch (pageError) {
-          if (active) {
-            setTrendItems(firstPass);
+        if (firstPass.length < 12) {
+          try {
+            const secondPage = await fetchTrendingAllDay(2);
+            if (!active) return;
+            finalList = pickTrendingItems([...firstPage.results, ...secondPage.results], 12);
+          } catch (pageError) {
+            finalList = firstPass;
           }
         }
+
+        if (!active) return;
+        setTrendItems(finalList);
+        setTrendLoading(false);
       } catch (error) {
         if (active) {
           setTrendItems([]);

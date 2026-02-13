@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { ChipFilterRow } from "../components/ChipFilterRow";
@@ -7,6 +7,7 @@ import { PosterGrid } from "../components/PosterGrid";
 import { SectionHeader } from "../components/SectionHeader";
 import { fetchTvSeasons } from "../api/tmdbLists";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
+import { getBrowseCache, setBrowseCache } from "../stores/browseCache";
 import { useFollowStore } from "../stores/followStore";
 import type { TitleSummary } from "../types";
 
@@ -29,11 +30,15 @@ export const TvPage = () => {
       ? (normalizedFilter as TvFilter)
       : DEFAULT_FILTER;
   const sort = params.get("sort") || "popularity";
+  const cacheKey = `tv:${filter}:${sort}`;
   const [browseItems, setBrowseItems] = useState<TitleSummary[]>([]);
   const [browsePage, setBrowsePage] = useState(1);
   const [totalPages, setTotalPages] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const mountedRef = useRef(false);
+  const cacheKeyRef = useRef(cacheKey);
+  const browseItemsRef = useRef<TitleSummary[]>([]);
 
   const trackedItems = useMemo(
     () =>
@@ -56,22 +61,45 @@ export const TvPage = () => {
   );
 
   const loadBrowse = useCallback(
-    async (nextPage: number, replace: boolean) => {
+    async (nextPage: number, replace: boolean, requestKey: string = cacheKeyRef.current) => {
+      if (!mountedRef.current) return;
       setError(null);
       setLoading(true);
       try {
         const response = await fetchTvSeasons(nextPage, filter);
+        if (!mountedRef.current || cacheKeyRef.current !== requestKey) return;
+        const nextItems = replace ? response.results : [...browseItemsRef.current, ...response.results];
+        browseItemsRef.current = nextItems;
+        setBrowseItems(nextItems);
         setBrowsePage(response.page);
         setTotalPages(response.total_pages);
-        setBrowseItems((prev) => (replace ? response.results : [...prev, ...response.results]));
+        setBrowseCache(requestKey, {
+          items: nextItems,
+          page: response.page,
+          totalPages: response.total_pages,
+          updatedAt: Date.now(),
+        });
       } catch (err) {
+        if (!mountedRef.current || cacheKeyRef.current !== requestKey) return;
         setError("Unable to load browse results. Please try again.");
       } finally {
+        if (!mountedRef.current || cacheKeyRef.current !== requestKey) return;
         setLoading(false);
       }
     },
     [filter],
   );
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    cacheKeyRef.current = cacheKey;
+  }, [cacheKey]);
 
   useEffect(() => {
     if (rawFilter && rawFilter !== filter) {
@@ -80,12 +108,23 @@ export const TvPage = () => {
   }, [filter, rawFilter, setParams, sort]);
 
   useEffect(() => {
-    setBrowseItems([]);
-    setBrowsePage(1);
-    setTotalPages(null);
-    setError(null);
-    loadBrowse(1, true);
-  }, [filter, loadBrowse]);
+    const cached = getBrowseCache(cacheKey);
+    if (cached) {
+      browseItemsRef.current = cached.items;
+      setBrowseItems(cached.items);
+      setBrowsePage(cached.page);
+      setTotalPages(cached.totalPages);
+      setError(null);
+      setLoading(false);
+    } else {
+      setError(null);
+      if (browseItemsRef.current.length === 0) {
+        setBrowsePage(1);
+        setTotalPages(null);
+      }
+    }
+    void loadBrowse(1, true, cacheKey);
+  }, [cacheKey, loadBrowse]);
 
   const toTimestamp = (value?: string | null) => {
     if (!value) return 0;
@@ -104,11 +143,11 @@ export const TvPage = () => {
   }, [browseItems, sort]);
 
   const hasMore = !error && (totalPages === null ? true : browsePage < totalPages);
-  const isLoadingMore = loading && browseItems.length > 0;
+  const isRefreshing = loading && browseItems.length > 0;
   const loadMore = useCallback(() => {
     if (!hasMore || loading || error) return;
-    loadBrowse(browsePage + 1, false);
-  }, [browsePage, error, hasMore, loadBrowse, loading]);
+    void loadBrowse(browsePage + 1, false, cacheKey);
+  }, [browsePage, cacheKey, error, hasMore, loadBrowse, loading]);
   const sentinelRef = useInfiniteScroll({ onLoadMore: loadMore, hasMore, loading });
 
   return (
@@ -160,7 +199,7 @@ export const TvPage = () => {
       {error ? (
         <div className="card">
           <p>{error}</p>
-          <button className="button secondary" onClick={() => loadBrowse(1, true)}>
+          <button className="button secondary" onClick={() => void loadBrowse(1, true, cacheKey)}>
             Retry
           </button>
         </div>
@@ -174,7 +213,7 @@ export const TvPage = () => {
       ) : (
         <PosterGrid items={sortedBrowse} mediaType="tv" />
       )}
-      {isLoadingMore ? <GridSkeleton count={4} /> : null}
+      {isRefreshing ? <p className="muted">Updating list...</p> : null}
       <div ref={sentinelRef} style={{ height: 1 }} />
     </div>
   );

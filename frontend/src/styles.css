@@ -573,6 +573,27 @@ a {
   background: #111826;
 }
 
+.poster-img {
+  position: relative;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.poster-img.loaded {
+  opacity: 1;
+}
+
+.poster-image-placeholder {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(120deg, #1a2435 25%, #222f48 50%, #1a2435 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
 .poster-tile-hint {
   position: absolute;
   inset: auto 10px 10px;
@@ -599,6 +620,7 @@ a {
   position: absolute;
   top: 10px;
   left: 10px;
+  z-index: 3;
   padding: 4px 8px;
   border-radius: 999px;
   background: rgba(6, 16, 28, 0.78);
@@ -657,6 +679,14 @@ a {
 
   .poster-tile-hint {
     transition: none;
+  }
+
+  .poster-img {
+    transition: none;
+  }
+
+  .poster-image-placeholder {
+    animation: none;
   }
 }
 

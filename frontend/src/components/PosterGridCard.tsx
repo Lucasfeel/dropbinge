@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import type { TitleSummary } from "../types";
@@ -36,6 +36,9 @@ export const PosterGridCard = memo(({
   onSelect,
 }: PosterGridCardProps) => {
   const poster = getPosterSources(item.poster_path);
+  const posterSrc = poster?.src || "";
+  const imageRef = useRef<HTMLImageElement | null>(null);
+  const [imgLoaded, setImgLoaded] = useState(false);
   const rating = formatRating(item.vote_average);
   const metaDate = formatMetaDate(item.date);
   const isSeason = mediaType === "tv" && typeof item.season_number === "number";
@@ -51,6 +54,17 @@ export const PosterGridCard = memo(({
     }
   };
 
+  useEffect(() => {
+    setImgLoaded(false);
+  }, [posterSrc]);
+
+  useEffect(() => {
+    if (!posterSrc) return;
+    if (imageRef.current?.complete) {
+      setImgLoaded(true);
+    }
+  }, [posterSrc]);
+
   return (
     <Link
       to={link}
@@ -61,16 +75,23 @@ export const PosterGridCard = memo(({
       <div className="poster-tile-media">
         {item.is_completed ? <span className="poster-completed-badge">COMPLETED</span> : null}
         {poster ? (
-          <img
-            src={poster.src}
-            srcSet={poster.srcSet}
-            sizes={poster.sizes}
-            alt={item.title}
-            loading="lazy"
-            decoding="async"
-            width={342}
-            height={513}
-          />
+          <>
+            {!imgLoaded ? <span className="poster-image-placeholder" aria-hidden="true" /> : null}
+            <img
+              ref={imageRef}
+              src={poster.src}
+              srcSet={poster.srcSet}
+              sizes={poster.sizes}
+              alt={item.title}
+              loading="lazy"
+              decoding="async"
+              width={342}
+              height={513}
+              className={imgLoaded ? "poster-img loaded" : "poster-img"}
+              onLoad={() => setImgLoaded(true)}
+              onError={() => setImgLoaded(true)}
+            />
+          </>
         ) : (
           <div className="poster-fallback" />
         )}
