@@ -94,6 +94,19 @@ def test_invalid_frequency_returns_400(client):
     assert patch_resp.status_code == 400
 
 
+def test_create_follow_rejects_invalid_tmdb_id(client):
+    token = _register(client)
+
+    resp = client.post(
+        "/api/my/follows",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"target_type": "movie", "tmdb_id": True},
+    )
+
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "invalid_tmdb_id"
+
+
 def test_create_follow_hydrates_without_events(client, monkeypatch):
     token = _register(client)
 

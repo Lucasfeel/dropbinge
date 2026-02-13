@@ -32,12 +32,14 @@ def subscribe_email_public():
         return jsonify({"error": "email_required"}), 400
     if target_type not in ALLOWED_TARGET_TYPES:
         return jsonify({"error": "invalid_target_type"}), 400
-    if not isinstance(tmdb_id, int):
+    if tmdb_id is None:
         return jsonify({"error": "tmdb_id required"}), 400
+    if isinstance(tmdb_id, bool) or not isinstance(tmdb_id, int) or tmdb_id <= 0:
+        return jsonify({"error": "invalid_tmdb_id"}), 400
     if target_type == "tv_season":
         if season_number is None:
             return jsonify({"error": "season_number required"}), 400
-        if not isinstance(season_number, int) or season_number < 0:
+        if isinstance(season_number, bool) or not isinstance(season_number, int) or season_number < 0:
             return jsonify({"error": "invalid_season_number"}), 400
     else:
         season_number = None

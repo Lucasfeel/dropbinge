@@ -8,6 +8,13 @@ type InfiniteScrollOptions = {
 
 export const useInfiniteScroll = ({ onLoadMore, hasMore, loading }: InfiniteScrollOptions) => {
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const triggerLockRef = useRef(false);
+
+  useEffect(() => {
+    if (!loading) {
+      triggerLockRef.current = false;
+    }
+  }, [loading, hasMore]);
 
   useEffect(() => {
     const sentinel = sentinelRef.current;
@@ -17,7 +24,8 @@ export const useInfiniteScroll = ({ onLoadMore, hasMore, loading }: InfiniteScro
       (entries) => {
         const [entry] = entries;
         if (!entry?.isIntersecting) return;
-        if (loading || !hasMore) return;
+        if (loading || !hasMore || triggerLockRef.current) return;
+        triggerLockRef.current = true;
         onLoadMore();
       },
       { rootMargin: "600px" },

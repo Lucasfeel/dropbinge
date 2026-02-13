@@ -43,9 +43,22 @@ DEFAULT_PREFS = {
     "frequency": "important_only",
 }
 
+
 def _validate_bool(value, field_name):
     if not isinstance(value, bool):
         return jsonify({"error": "invalid_boolean", "field": field_name}), 400
+    return None
+
+
+def _validate_tmdb_id(value):
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return jsonify({"error": "invalid_tmdb_id"}), 400
+    return None
+
+
+def _validate_season_number(value):
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return jsonify({"error": "invalid_season_number"}), 400
     return None
 
 
@@ -130,11 +143,15 @@ def create_follow(payload):
         return jsonify({"error": "invalid_target_type"}), 400
     if tmdb_id is None:
         return jsonify({"error": "tmdb_id required"}), 400
+    tmdb_error = _validate_tmdb_id(tmdb_id)
+    if tmdb_error:
+        return tmdb_error
     if target_type == "tv_season" and season_number is None:
         return jsonify({"error": "season_number required"}), 400
     if target_type == "tv_season":
-        if not isinstance(season_number, int) or season_number < 0:
-            return jsonify({"error": "invalid_season_number"}), 400
+        season_error = _validate_season_number(season_number)
+        if season_error:
+            return season_error
 
     if target_type != "tv_season":
         season_number = None

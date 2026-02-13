@@ -119,3 +119,17 @@ def test_register_upgrades_email_only_user(client, db_conn):
     user = cursor.fetchone()
     assert user
     assert user["password_hash"]
+
+
+def test_public_subscribe_rejects_invalid_tmdb_id(client):
+    resp = client.post(
+        "/api/public/subscribe-email",
+        json={
+            "email": "invalid@example.com",
+            "target_type": "movie",
+            "tmdb_id": True,
+            "roles": {"drop": True, "binge": False},
+        },
+    )
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "invalid_tmdb_id"

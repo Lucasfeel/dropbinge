@@ -275,9 +275,18 @@ def search():
     if page < 1:
         return _json_response({"error": "Invalid page"}, status=400, cache_status="MISS")
     language = request.args.get("language")
+    normalized_query = tmdb_http_cache.normalize_query(query)
     cache_key = tmdb_http_cache.make_cache_key(
         "http:search_multi",
-        query_key=f"q={tmdb_http_cache.normalize_query(query)}&page={page}",
+        query_key=urlencode(
+            sorted(
+                {
+                    "q": normalized_query,
+                    "page": page,
+                    "language": language or "",
+                }.items()
+            )
+        ),
     )
     try:
         cached = tmdb_http_cache.get_cached(None, *cache_key)
@@ -416,11 +425,20 @@ def watch_providers(media_type, item_id):
         return _json_response({"error": "Invalid media type"}, status=400, cache_status="MISS")
     region = (request.args.get("region") or "US").upper()
     cache_key = tmdb_http_cache.make_cache_key(
-        "http:watch_providers", tmdb_id=item_id, season_number=-1
+        "http:watch_providers",
+        query_key=urlencode(
+            sorted(
+                {
+                    "media_type": media_type,
+                    "item_id": item_id,
+                    "region": region,
+                }.items()
+            )
+        ),
     )
     try:
         cached = tmdb_http_cache.get_cached(None, *cache_key)
-        if cached is not None and cached.get("region") == region:
+        if cached is not None:
             _log_cache("watch_providers", "HIT", 0)
             return _json_response(cached, cache_status="HIT")
         start = time.perf_counter()

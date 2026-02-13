@@ -524,6 +524,12 @@ a {
   text-decoration: none;
 }
 
+.poster-grid .poster-tile,
+.horizontal-rail-track .poster-tile {
+  content-visibility: auto;
+  contain-intrinsic-size: 260px 420px;
+}
+
 .poster-tile-interactive {
   cursor: pointer;
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
@@ -564,6 +570,7 @@ a {
   height: 100%;
   object-fit: cover;
   display: block;
+  background: #111826;
 }
 
 .poster-tile-hint {

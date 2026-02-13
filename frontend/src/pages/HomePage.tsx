@@ -10,6 +10,20 @@ import { useFollowStore } from "../stores/followStore";
 import type { TitleSummary } from "../types";
 import { getRecentSearches } from "../utils/searchHistory";
 
+const pickTrendingItems = (items: TitleSummary[], limit = 12) => {
+  const seen = new Set<string>();
+  const filtered: TitleSummary[] = [];
+  for (const item of items) {
+    const key = `${item.media_type}-${item.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (item.is_completed) continue;
+    filtered.push(item);
+    if (filtered.length >= limit) break;
+  }
+  return filtered;
+};
+
 export const HomePage = () => {
   const navigate = useNavigate();
   const { items: followItems } = useFollowStore();
@@ -24,33 +38,30 @@ export const HomePage = () => {
     const loadTrending = async () => {
       setTrendLoading(true);
       try {
-        const response = await fetchTrendingAllDay(1);
-        let secondPageResults: TitleSummary[] = [];
-        try {
-          const secondResponse = await fetchTrendingAllDay(2);
-          secondPageResults = secondResponse.results;
-        } catch (pageError) {
-          secondPageResults = [];
-        }
+        const firstPage = await fetchTrendingAllDay(1);
         if (!active) return;
-        const combinedResults = [...response.results, ...secondPageResults];
-        const seen = new Set<string>();
-        const filtered: TitleSummary[] = [];
-        for (const item of combinedResults) {
-          const key = `${item.media_type}-${item.id}`;
-          if (seen.has(key)) continue;
-          seen.add(key);
-          if (item.is_completed) continue;
-          filtered.push(item);
-          if (filtered.length >= 12) break;
+
+        const firstPass = pickTrendingItems(firstPage.results, 12);
+        setTrendItems(firstPass);
+        setTrendLoading(false);
+
+        if (firstPass.length >= 12) {
+          return;
         }
-        setTrendItems(filtered);
+
+        try {
+          const secondPage = await fetchTrendingAllDay(2);
+          if (!active) return;
+          const combined = pickTrendingItems([...firstPage.results, ...secondPage.results], 12);
+          setTrendItems(combined);
+        } catch (pageError) {
+          if (active) {
+            setTrendItems(firstPass);
+          }
+        }
       } catch (error) {
         if (active) {
           setTrendItems([]);
-        }
-      } finally {
-        if (active) {
           setTrendLoading(false);
         }
       }
