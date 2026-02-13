@@ -5,9 +5,11 @@ import { TopHeader } from "./TopHeader";
 
 export const AppShell = () => {
   const location = useLocation();
-  const isNarrow = ["/movie", "/tv", "/series"].some((route) =>
-    location.pathname.startsWith(route),
-  );
+  const isNarrow =
+    location.pathname === "/" ||
+    ["/movie", "/tv", "/series", "/me", "/title"].some((route) =>
+      location.pathname.startsWith(route),
+    );
 
   return (
     <div className={`app-shell${isNarrow ? " layout-narrow" : ""}`}>
