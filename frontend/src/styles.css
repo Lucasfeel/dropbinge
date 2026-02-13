@@ -94,7 +94,7 @@ a {
   z-index: 20;
   background: rgba(10, 14, 22, 0.85);
   backdrop-filter: blur(12px);
-  padding: 12px 0;
+  padding: 14px 0;
 }
 
 .top-header-inner {
@@ -109,19 +109,19 @@ a {
 }
 
 .brand-logo img {
-  height: 28px;
+  height: 36px;
 }
 
 .top-header-actions {
   margin-left: auto;
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
 
 .top-action-button {
-  width: 28px;
-  height: 28px;
+  width: 36px;
+  height: 36px;
   padding: 0;
   border: none;
   background: transparent;
@@ -134,13 +134,13 @@ a {
 }
 
 .top-action-button svg {
-  width: 20px;
-  height: 20px;
+  width: 26px;
+  height: 26px;
 }
 
 .profile-shortcut-button svg {
-  width: 21px;
-  height: 21px;
+  width: 27px;
+  height: 27px;
 }
 
 .top-action-button:focus-visible {
@@ -160,23 +160,31 @@ a {
 }
 
 @media (max-width: 480px) {
+  .top-header {
+    padding: 12px 0;
+  }
+
+  .brand-logo img {
+    height: 32px;
+  }
+
   .top-header-actions {
     gap: 10px;
   }
 
   .top-action-button {
-    width: 26px;
-    height: 26px;
+    width: 32px;
+    height: 32px;
   }
 
   .top-action-button svg {
-    width: 18px;
-    height: 18px;
+    width: 23px;
+    height: 23px;
   }
 
   .profile-shortcut-button svg {
-    width: 19px;
-    height: 19px;
+    width: 24px;
+    height: 24px;
   }
 }
 
