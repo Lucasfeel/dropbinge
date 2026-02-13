@@ -116,63 +116,24 @@ a {
   margin-left: auto;
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .top-action-button {
-  position: relative;
-  width: 46px;
-  height: 46px;
-  border-radius: 999px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   border: none;
   background: transparent;
-  color: #f5f6fb;
+  color: rgba(245, 246, 251, 0.82);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: transform 0.2s ease, filter 0.2s ease, box-shadow 0.2s ease;
-}
-
-.top-action-button::before,
-.top-action-button::after {
-  content: "";
-  position: absolute;
-  border-radius: inherit;
-  pointer-events: none;
-}
-
-.top-action-button::before {
-  inset: 0;
-}
-
-.top-action-button::after {
-  inset: 7px;
-}
-
-.search-icon-button::before {
-  background: linear-gradient(160deg, rgba(25, 40, 72, 0.95), rgba(9, 16, 30, 0.95));
-  border: 1px solid rgba(185, 205, 255, 0.2);
-  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.35);
-}
-
-.search-icon-button::after {
-  border: 1px solid rgba(186, 205, 255, 0.42);
-}
-
-.profile-shortcut-button::before {
-  background: linear-gradient(165deg, rgba(18, 28, 48, 0.95), rgba(8, 13, 24, 0.96));
-  border: 1px solid rgba(160, 178, 219, 0.22);
-  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.35);
-}
-
-.profile-shortcut-button::after {
-  border: 1px solid rgba(173, 193, 233, 0.34);
+  transition: color 0.16s ease, transform 0.16s ease, opacity 0.16s ease;
 }
 
 .top-action-button svg {
-  position: relative;
-  z-index: 1;
   width: 20px;
   height: 20px;
 }
@@ -184,22 +145,28 @@ a {
 
 .top-action-button:focus-visible {
   outline: 2px solid #9bb0ff;
-  outline-offset: 2px;
+  outline-offset: 3px;
+  border-radius: 8px;
 }
 
 .top-action-button:hover {
+  color: #f5f6fb;
   transform: translateY(-1px);
-  filter: brightness(1.08);
 }
 
 .top-action-button:active {
-  transform: scale(0.97);
+  transform: none;
+  opacity: 0.85;
 }
 
 @media (max-width: 480px) {
+  .top-header-actions {
+    gap: 10px;
+  }
+
   .top-action-button {
-    width: 42px;
-    height: 42px;
+    width: 26px;
+    height: 26px;
   }
 
   .top-action-button svg {
