@@ -8,7 +8,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useFollowStore } from "../stores/followStore";
 
 export const MyPage = () => {
-  const { token, login, register, logout } = useAuth();
+  const { token, user, login, register, logout } = useAuth();
   const { items, removeFollow, retryHydrate } = useFollowStore();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -121,6 +121,11 @@ export const MyPage = () => {
           <div className="card">
             <SectionHeader title="Account" />
             <div className="button-row">
+              {user?.is_admin ? (
+                <a className="button ghost role-btn" href="/admin">
+                  Admin Console
+                </a>
+              ) : null}
               <button className="button" onClick={refreshNow}>
                 Refresh now
               </button>

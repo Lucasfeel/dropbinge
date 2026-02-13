@@ -7,6 +7,7 @@ from flask_cors import CORS
 import config
 from database import close_db
 from views.auth import auth_bp
+from views.admin import admin_bp
 from views.activity import activity_bp
 from views.follows import follows_bp
 from views.home import home_bp
@@ -29,6 +30,7 @@ else:
     CORS(app)
 
 app.register_blueprint(auth_bp)
+app.register_blueprint(admin_bp)
 app.register_blueprint(tmdb_bp)
 app.register_blueprint(follows_bp)
 app.register_blueprint(refresh_bp)

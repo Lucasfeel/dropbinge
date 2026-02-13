@@ -25,7 +25,7 @@ export type Follow = {
   cache_updated_at?: string | null;
 } & Prefs;
 
-export type User = { id: number; email: string };
+export type User = { id: number; email: string; is_admin?: boolean };
 
 export type FollowPayload = {
   targetType: "movie" | "tv_full" | "tv_season";

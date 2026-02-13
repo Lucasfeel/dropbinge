@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify, request
 
 from database import get_db, get_cursor
 from services import auth_service
-from utils.auth import require_auth
+from utils.auth import is_admin_email, require_auth
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
@@ -36,7 +36,12 @@ def register():
         user_id = cursor.fetchone()["id"]
     db.commit()
     token = auth_service.generate_token(user_id, email)
-    return jsonify({"token": token, "user": {"id": user_id, "email": email}})
+    return jsonify(
+        {
+            "token": token,
+            "user": {"id": user_id, "email": email, "is_admin": is_admin_email(email)},
+        }
+    )
 
 
 @auth_bp.post("/login")
@@ -56,10 +61,28 @@ def login():
     if not auth_service.verify_password(password, user["password_hash"]):
         return jsonify({"error": "Invalid credentials."}), 401
     token = auth_service.generate_token(user["id"], user["email"])
-    return jsonify({"token": token, "user": {"id": user["id"], "email": user["email"]}})
+    return jsonify(
+        {
+            "token": token,
+            "user": {
+                "id": user["id"],
+                "email": user["email"],
+                "is_admin": is_admin_email(user["email"]),
+            },
+        }
+    )
 
 
 @auth_bp.get("/me")
 @require_auth
 def me(payload):
-    return jsonify({"user": {"id": int(payload["sub"]), "email": payload["email"]}})
+    email = payload["email"]
+    return jsonify(
+        {
+            "user": {
+                "id": int(payload["sub"]),
+                "email": email,
+                "is_admin": is_admin_email(email),
+            }
+        }
+    )

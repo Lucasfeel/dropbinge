@@ -51,6 +51,16 @@ def _env_bool(name, default=False):
     return default
 
 
+def _parse_email_set(raw_value):
+    if raw_value is None:
+        return set()
+    return {
+        item.strip().lower()
+        for item in raw_value.split(",")
+        if isinstance(item, str) and item.strip()
+    }
+
+
 EMAIL_ENABLED = _env_bool("EMAIL_ENABLED", False)
 EMAIL_FROM = os.getenv("EMAIL_FROM")
 EMAIL_REPLY_TO = os.getenv("EMAIL_REPLY_TO")
@@ -75,3 +85,5 @@ CRON_SECRET = os.getenv("CRON_SECRET")
 CRON_DISPATCH_BATCH_SIZE = _env_int("CRON_DISPATCH_BATCH_SIZE", EMAIL_DISPATCH_BATCH_SIZE)
 CRON_REFRESH_LIMIT_USERS = _env_int("CRON_REFRESH_LIMIT_USERS", None)
 CRON_REFRESH_LIMIT_FOLLOWS = _env_int("CRON_REFRESH_LIMIT_FOLLOWS", None)
+
+ADMIN_EMAILS = _parse_email_set(os.getenv("ADMIN_EMAILS"))
