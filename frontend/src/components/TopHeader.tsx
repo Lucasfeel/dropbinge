@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
 
+import { IconMy } from "../icons/nav/IconMy";
 import { BrandLogo } from "./BrandLogo";
 
 export const TopHeader = () => {
@@ -12,7 +13,7 @@ export const TopHeader = () => {
         <div className="top-header-actions">
           <button
             type="button"
-            className="search-icon-button"
+            className="top-action-button search-icon-button"
             onClick={() => navigate("/search")}
             aria-label="Search"
           >
@@ -20,6 +21,14 @@ export const TopHeader = () => {
               <circle cx="11" cy="11" r="7" />
               <path d="M20 20l-3.2-3.2" strokeLinecap="round" />
             </svg>
+          </button>
+          <button
+            type="button"
+            className="top-action-button profile-shortcut-button"
+            onClick={() => navigate("/me")}
+            aria-label="My page shortcut"
+          >
+            <IconMy aria-hidden="true" />
           </button>
         </div>
       </div>

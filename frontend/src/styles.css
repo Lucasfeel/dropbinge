@@ -114,35 +114,103 @@ a {
 
 .top-header-actions {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
 }
 
-.search-icon-button {
-  width: 40px;
-  height: 40px;
+.top-action-button {
+  position: relative;
+  width: 46px;
+  height: 46px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(18, 26, 42, 0.9);
+  border: none;
+  background: transparent;
   color: #f5f6fb;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  transition: transform 0.2s ease, filter 0.2s ease, box-shadow 0.2s ease;
 }
 
-.search-icon-button svg {
+.top-action-button::before,
+.top-action-button::after {
+  content: "";
+  position: absolute;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.top-action-button::before {
+  inset: 0;
+}
+
+.top-action-button::after {
+  inset: 7px;
+}
+
+.search-icon-button::before {
+  background: linear-gradient(160deg, rgba(25, 40, 72, 0.95), rgba(9, 16, 30, 0.95));
+  border: 1px solid rgba(185, 205, 255, 0.2);
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.35);
+}
+
+.search-icon-button::after {
+  border: 1px solid rgba(186, 205, 255, 0.42);
+}
+
+.profile-shortcut-button::before {
+  background: linear-gradient(165deg, rgba(18, 28, 48, 0.95), rgba(8, 13, 24, 0.96));
+  border: 1px solid rgba(160, 178, 219, 0.22);
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.35);
+}
+
+.profile-shortcut-button::after {
+  border: 1px solid rgba(173, 193, 233, 0.34);
+}
+
+.top-action-button svg {
+  position: relative;
+  z-index: 1;
   width: 20px;
   height: 20px;
 }
 
-.search-icon-button:focus-visible {
+.profile-shortcut-button svg {
+  width: 21px;
+  height: 21px;
+}
+
+.top-action-button:focus-visible {
   outline: 2px solid #9bb0ff;
   outline-offset: 2px;
 }
 
-.search-icon-button:hover {
-  border-color: rgba(255, 255, 255, 0.3);
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.25);
+.top-action-button:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.08);
+}
+
+.top-action-button:active {
+  transform: scale(0.97);
+}
+
+@media (max-width: 480px) {
+  .top-action-button {
+    width: 42px;
+    height: 42px;
+  }
+
+  .top-action-button svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .profile-shortcut-button svg {
+    width: 19px;
+    height: 19px;
+  }
 }
 
 .bottom-nav {
