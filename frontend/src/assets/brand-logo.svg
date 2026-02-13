@@ -26,7 +26,8 @@
   <g
      aria-label="DropBinge"
      id="text6"
-     style="font-weight:600;font-size:12px;font-family:Inter, Arial, sans-serif;fill:#f4f5ff;stroke:#f4f5ff;stroke-width:0.28;paint-order:stroke fill">
+     transform="translate(0 -14) scale(1 1.7)"
+     style="font-weight:600;font-size:12px;font-family:Inter, Arial, sans-serif;fill:#F4F5FF;stroke:#F4F5FF;stroke-width:0.32;paint-order:stroke fill">
     <path
        d="m 39.818182,21 c 2.659091,0 4.235795,-1.644886 4.235795,-4.372159 0,-2.71875 -1.576704,-4.355114 -4.176136,-4.355114 H 36.860795 V 21 Z m -1.376421,-1.367898 v -5.991477 h 1.346591 c 1.772728,0 2.697443,0.988636 2.697443,2.987216 0,2.007102 -0.924715,3.004261 -2.744318,3.004261 z"
        id="path14" />
