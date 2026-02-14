@@ -1149,7 +1149,8 @@ a {
 }
 
 .admin-search-row input,
-.admin-field input {
+.admin-field input,
+.admin-field select {
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 12px;
   background: rgba(4, 9, 17, 0.82);
@@ -1250,6 +1251,46 @@ a {
   margin: 4px 0 0;
   color: #fca5a5;
   font-size: 11px;
+}
+
+.admin-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.admin-pre {
+  margin: 10px 0 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background: rgba(7, 11, 18, 0.86);
+  padding: 10px;
+  color: #dbeafe;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.admin-pre.compact {
+  font-size: 11px;
+  margin-top: 6px;
+}
+
+.admin-pill.status-success {
+  border-color: rgba(52, 211, 153, 0.5);
+  background: rgba(6, 78, 59, 0.8);
+}
+
+.admin-pill.status-warning {
+  border-color: rgba(251, 191, 36, 0.6);
+  background: rgba(113, 63, 18, 0.75);
+}
+
+.admin-pill.status-failure {
+  border-color: rgba(248, 113, 113, 0.6);
+  background: rgba(127, 29, 29, 0.75);
 }
 
 .admin-toast {

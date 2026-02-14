@@ -4,7 +4,13 @@ import { Link } from "react-router-dom";
 import { apiFetch } from "../api";
 import { useAuth } from "../hooks/useAuth";
 
-type TabKey = "overview" | "users" | "ops";
+type TabKey =
+  | "overview"
+  | "users"
+  | "cdcEvents"
+  | "reports"
+  | "dailyNotification"
+  | "ops";
 type Tone = "info" | "success" | "error";
 
 type OverviewPayload = {
@@ -62,6 +68,99 @@ type OutboxSummaryPayload = {
   }>;
 };
 
+type CdcEventItem = {
+  id: number;
+  created_at: string | null;
+  event_type: string;
+  event_payload: Record<string, unknown> | null;
+  user_id: number | null;
+  user_email: string | null;
+  source: string | null;
+  content_id: string | null;
+  tmdb_id: number | null;
+  season_number: number | null;
+  title: string | null;
+};
+
+type CdcEventsPayload = {
+  success: boolean;
+  events: CdcEventItem[];
+  limit: number;
+  offset: number;
+};
+
+type JobReportItem = {
+  id: number;
+  crawler_name: string;
+  status: string;
+  normalized_status: string;
+  report_data: Record<string, unknown>;
+  created_at: string | null;
+};
+
+type JobReportsPayload = {
+  success: boolean;
+  reports: JobReportItem[];
+  limit: number;
+  offset: number;
+};
+
+type DailySummaryPayload = {
+  success: boolean;
+  range: { created_from: string | null; created_to: string | null };
+  overall_status: string;
+  subject_text: string;
+  summary_text: string;
+  total_reports: number;
+  counts: Record<string, number>;
+  items: JobReportItem[];
+};
+
+type DailyNotificationItem = {
+  id: number;
+  title: string | null;
+  channel: string;
+  status: string;
+  user_email: string | null;
+  target_type: string | null;
+  tmdb_id: number | null;
+  season_number: number | null;
+  created_at: string | null;
+  sent_at: string | null;
+  last_error: string | null;
+};
+
+type DailyNotificationStats = {
+  date: string;
+  duration_seconds: number | null;
+  total_items: number;
+  sent_count: number;
+  pending_count: number;
+  failed_count: number;
+  other_count: number;
+  unique_recipients: number;
+  event_counts: Record<string, number>;
+};
+
+type DailyNotificationPayload = {
+  success: boolean;
+  date: string;
+  range: { from: string; to: string };
+  generated_at: string;
+  stats: DailyNotificationStats;
+  items?: DailyNotificationItem[];
+  completed_items?: DailyNotificationItem[];
+  text_report: string;
+};
+
+type OpsSettings = {
+  dispatchBatch: string;
+  limitUsers: string;
+  limitFollows: string;
+  forceRefresh: boolean;
+};
+
+const OPS_SETTINGS_STORAGE_KEY = "dropbinge_admin_ops_settings";
 const TARGET_LABEL = {
   movie: "Movie",
   tv_full: "TV Full",
@@ -76,7 +175,7 @@ const formatDate = (value: string | null | undefined) => {
   if (Number.isNaN(parsed.getTime())) {
     return value;
   }
-  return new Intl.DateTimeFormat("ko-KR", {
+  return new Intl.DateTimeFormat("en-CA", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -85,6 +184,8 @@ const formatDate = (value: string | null | undefined) => {
     hour12: false,
   }).format(parsed);
 };
+
+const todayDateInput = () => new Date().toISOString().slice(0, 10);
 
 const messageOf = (error: unknown, fallback: string) => {
   if (error instanceof Error && error.message) {
@@ -102,6 +203,64 @@ const parseOptionalPositiveInt = (value: string) => {
     return null;
   }
   return parsed;
+};
+
+const statusBadgeClass = (normalizedStatus: string) => {
+  if (normalizedStatus === "success") {
+    return "admin-pill status-success";
+  }
+  if (normalizedStatus === "warning") {
+    return "admin-pill status-warning";
+  }
+  if (normalizedStatus === "failure") {
+    return "admin-pill status-failure";
+  }
+  return "admin-pill";
+};
+
+const formatReportSummary = (reportData: Record<string, unknown>) => {
+  const keys = [
+    "message",
+    "error",
+    "detail",
+    "events_emitted",
+    "processed_follows",
+    "claimed",
+    "sent",
+    "failed",
+  ];
+  for (const key of keys) {
+    const value = reportData[key];
+    if (value !== undefined && value !== null && value !== "") {
+      if (typeof value === "string") {
+        return `${key}: ${value}`;
+      }
+      return `${key}: ${JSON.stringify(value)}`;
+    }
+  }
+  return "-";
+};
+
+const copyText = async (text: string) => {
+  if (!text) {
+    throw new Error("Empty text");
+  }
+  if (navigator?.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const el = document.createElement("textarea");
+  el.value = text;
+  el.setAttribute("readonly", "true");
+  el.style.position = "fixed";
+  el.style.left = "-9999px";
+  document.body.appendChild(el);
+  el.select();
+  const ok = document.execCommand("copy");
+  document.body.removeChild(el);
+  if (!ok) {
+    throw new Error("Copy failed");
+  }
 };
 
 export const AdminPage = () => {
@@ -133,7 +292,43 @@ export const AdminPage = () => {
   const [limitFollows, setLimitFollows] = useState("");
   const [forceRefresh, setForceRefresh] = useState(false);
 
+  const [cdcQ, setCdcQ] = useState("");
+  const [cdcEventType, setCdcEventType] = useState("");
+  const [cdcSource, setCdcSource] = useState("");
+  const [cdcContentId, setCdcContentId] = useState("");
+  const [cdcCreatedFrom, setCdcCreatedFrom] = useState("");
+  const [cdcCreatedTo, setCdcCreatedTo] = useState("");
+  const [cdcOffset, setCdcOffset] = useState(0);
+  const [cdcLimit] = useState(50);
+  const [cdcLastCount, setCdcLastCount] = useState(0);
+  const [cdcEvents, setCdcEvents] = useState<CdcEventItem[]>([]);
+  const [cdcLoading, setCdcLoading] = useState(false);
+
+  const [reportsCrawlerName, setReportsCrawlerName] = useState("");
+  const [reportsStatus, setReportsStatus] = useState("");
+  const [reportsCreatedFrom, setReportsCreatedFrom] = useState("");
+  const [reportsCreatedTo, setReportsCreatedTo] = useState("");
+  const [reportsOffset, setReportsOffset] = useState(0);
+  const [reportsLimit] = useState(50);
+  const [reportsLastCount, setReportsLastCount] = useState(0);
+  const [reports, setReports] = useState<JobReportItem[]>([]);
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [dailySummary, setDailySummary] = useState<DailySummaryPayload | null>(null);
+  const [dailySummaryLoading, setDailySummaryLoading] = useState(false);
+  const [cleanupKeepDays, setCleanupKeepDays] = useState("14");
+  const [cleanupLoading, setCleanupLoading] = useState(false);
+
+  const [dailyDate, setDailyDate] = useState(todayDateInput());
+  const [dailyIncludeFailed, setDailyIncludeFailed] = useState(false);
+  const [dailyIncludePending, setDailyIncludePending] = useState(false);
+  const [dailyPayload, setDailyPayload] = useState<DailyNotificationPayload | null>(null);
+  const [dailyLoading, setDailyLoading] = useState(false);
+
   const canAccessAdmin = Boolean(token && user?.is_admin);
+
+  const notify = (text: string, tone: Tone = "info") => {
+    setToast({ text, tone });
+  };
 
   useEffect(() => {
     if (!toast) {
@@ -143,8 +338,39 @@ export const AdminPage = () => {
     return () => window.clearTimeout(timeout);
   }, [toast]);
 
-  const notify = (text: string, tone: Tone = "info") => {
-    setToast({ text, tone });
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(OPS_SETTINGS_STORAGE_KEY);
+      if (!raw) {
+        return;
+      }
+      const parsed = JSON.parse(raw) as OpsSettings;
+      if (typeof parsed.dispatchBatch === "string") {
+        setDispatchBatch(parsed.dispatchBatch);
+      }
+      if (typeof parsed.limitUsers === "string") {
+        setLimitUsers(parsed.limitUsers);
+      }
+      if (typeof parsed.limitFollows === "string") {
+        setLimitFollows(parsed.limitFollows);
+      }
+      if (typeof parsed.forceRefresh === "boolean") {
+        setForceRefresh(parsed.forceRefresh);
+      }
+    } catch {
+      // ignore local storage parse errors
+    }
+  }, []);
+
+  const saveOpsSettings = () => {
+    const payload: OpsSettings = {
+      dispatchBatch,
+      limitUsers,
+      limitFollows,
+      forceRefresh,
+    };
+    window.localStorage.setItem(OPS_SETTINGS_STORAGE_KEY, JSON.stringify(payload));
+    notify("Trigger settings saved.", "success");
   };
 
   const loadOverview = async () => {
@@ -206,22 +432,110 @@ export const AdminPage = () => {
     }
   };
 
-  useEffect(() => {
-    if (!canAccessAdmin) {
-      return;
+  const loadCdcEvents = async (nextOffset = cdcOffset) => {
+    setCdcLoading(true);
+    try {
+      const params = new URLSearchParams({
+        limit: String(cdcLimit),
+        offset: String(nextOffset),
+      });
+      if (cdcQ.trim()) params.set("q", cdcQ.trim());
+      if (cdcEventType) params.set("event_type", cdcEventType);
+      if (cdcSource) params.set("source", cdcSource);
+      if (cdcContentId.trim()) params.set("content_id", cdcContentId.trim());
+      if (cdcCreatedFrom) params.set("created_from", cdcCreatedFrom);
+      if (cdcCreatedTo) params.set("created_to", cdcCreatedTo);
+      const payload = await apiFetch<CdcEventsPayload>(
+        `/api/admin/cdc/events?${params.toString()}`,
+      );
+      setCdcEvents(payload.events || []);
+      setCdcOffset(payload.offset);
+      setCdcLastCount((payload.events || []).length);
+    } catch (error) {
+      notify(messageOf(error, "Failed to load CDC events."), "error");
+    } finally {
+      setCdcLoading(false);
     }
+  };
+
+  const loadReports = async (nextOffset = reportsOffset) => {
+    setReportsLoading(true);
+    try {
+      const params = new URLSearchParams({
+        limit: String(reportsLimit),
+        offset: String(nextOffset),
+      });
+      if (reportsCrawlerName.trim()) params.set("crawler_name", reportsCrawlerName.trim());
+      if (reportsStatus) params.set("status", reportsStatus);
+      if (reportsCreatedFrom) params.set("created_from", reportsCreatedFrom);
+      if (reportsCreatedTo) params.set("created_to", reportsCreatedTo);
+      const payload = await apiFetch<JobReportsPayload>(
+        `/api/admin/reports/daily-crawler?${params.toString()}`,
+      );
+      setReports(payload.reports || []);
+      setReportsOffset(payload.offset);
+      setReportsLastCount((payload.reports || []).length);
+    } catch (error) {
+      notify(messageOf(error, "Failed to load reports."), "error");
+    } finally {
+      setReportsLoading(false);
+    }
+  };
+
+  const loadDailySummary = async () => {
+    setDailySummaryLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (reportsCreatedFrom) params.set("created_from", reportsCreatedFrom);
+      if (reportsCreatedTo) params.set("created_to", reportsCreatedTo);
+      const url = params.toString()
+        ? `/api/admin/reports/daily-summary?${params.toString()}`
+        : "/api/admin/reports/daily-summary";
+      const payload = await apiFetch<DailySummaryPayload>(url);
+      setDailySummary(payload);
+    } catch (error) {
+      notify(messageOf(error, "Failed to load daily summary."), "error");
+    } finally {
+      setDailySummaryLoading(false);
+    }
+  };
+
+  const loadDailyNotification = async () => {
+    setDailyLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (dailyDate) params.set("date", dailyDate);
+      if (dailyIncludeFailed) params.set("include_failed", "1");
+      if (dailyIncludePending) params.set("include_pending", "1");
+      const payload = await apiFetch<DailyNotificationPayload>(
+        `/api/admin/reports/daily-notification?${params.toString()}`,
+      );
+      setDailyPayload(payload);
+    } catch (error) {
+      notify(messageOf(error, "Failed to load daily notification report."), "error");
+      setDailyPayload(null);
+    } finally {
+      setDailyLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!canAccessAdmin) return;
     void loadOverview();
     void loadOutboxSummary();
   }, [canAccessAdmin]);
 
   useEffect(() => {
-    if (!canAccessAdmin) {
-      return;
-    }
+    if (!canAccessAdmin) return;
     if (tab === "users") {
       void loadUsers(usersQuery, usersOffset);
-    }
-    if (tab === "ops") {
+    } else if (tab === "cdcEvents") {
+      void loadCdcEvents(0);
+    } else if (tab === "reports") {
+      void Promise.all([loadReports(0), loadDailySummary()]);
+    } else if (tab === "dailyNotification") {
+      void loadDailyNotification();
+    } else if (tab === "ops") {
       void loadOutboxSummary();
     }
   }, [canAccessAdmin, tab]);
@@ -236,7 +550,7 @@ export const AdminPage = () => {
         body: JSON.stringify(body),
       });
       notify("Email dispatch started.", "success");
-      await Promise.all([loadOverview(), loadOutboxSummary()]);
+      await Promise.all([loadOverview(), loadOutboxSummary(), loadReports(0), loadDailySummary()]);
     } catch (error) {
       notify(messageOf(error, "Failed to start dispatch job."), "error");
     } finally {
@@ -252,18 +566,20 @@ export const AdminPage = () => {
       const body: { limit_users?: number; limit_follows?: number; force: boolean } = {
         force: forceRefresh,
       };
-      if (parsedLimitUsers) {
-        body.limit_users = parsedLimitUsers;
-      }
-      if (parsedLimitFollows) {
-        body.limit_follows = parsedLimitFollows;
-      }
+      if (parsedLimitUsers) body.limit_users = parsedLimitUsers;
+      if (parsedLimitFollows) body.limit_follows = parsedLimitFollows;
       await apiFetch("/api/admin/ops/refresh-all", {
         method: "POST",
         body: JSON.stringify(body),
       });
       notify("Refresh-all started.", "success");
-      await Promise.all([loadOverview(), loadOutboxSummary()]);
+      await Promise.all([
+        loadOverview(),
+        loadOutboxSummary(),
+        loadCdcEvents(0),
+        loadReports(0),
+        loadDailySummary(),
+      ]);
     } catch (error) {
       notify(messageOf(error, "Failed to start refresh-all."), "error");
     } finally {
@@ -272,9 +588,7 @@ export const AdminPage = () => {
   };
 
   const refreshSelectedUser = async () => {
-    if (!selectedUser) {
-      return;
-    }
+    if (!selectedUser) return;
     setDetailActionLoading(true);
     try {
       await apiFetch(`/api/admin/users/${selectedUser.id}/refresh`, {
@@ -282,7 +596,13 @@ export const AdminPage = () => {
         body: JSON.stringify({ force: true }),
       });
       notify("User refresh completed.", "success");
-      await Promise.all([loadUserFollows(selectedUser.id), loadOverview()]);
+      await Promise.all([
+        loadUserFollows(selectedUser.id),
+        loadOverview(),
+        loadCdcEvents(0),
+        loadReports(0),
+        loadDailySummary(),
+      ]);
     } catch (error) {
       notify(messageOf(error, "Failed to refresh selected user."), "error");
     } finally {
@@ -292,9 +612,7 @@ export const AdminPage = () => {
 
   const deleteFollow = async (followId: number, title: string | null, tmdbId: number) => {
     const confirmed = window.confirm(`Delete follow: ${title || `TMDB ${tmdbId}`}?`);
-    if (!confirmed || !selectedUser) {
-      return;
-    }
+    if (!confirmed || !selectedUser) return;
     setDetailActionLoading(true);
     try {
       await apiFetch(`/api/admin/follows/${followId}`, { method: "DELETE" });
@@ -307,13 +625,57 @@ export const AdminPage = () => {
     }
   };
 
+  const cleanupReports = async () => {
+    const keepDays = parseOptionalPositiveInt(cleanupKeepDays);
+    if (!keepDays) {
+      notify("keep_days must be a positive number.", "error");
+      return;
+    }
+    setCleanupLoading(true);
+    try {
+      await apiFetch("/api/admin/reports/daily-crawler/cleanup", {
+        method: "POST",
+        body: JSON.stringify({ keep_days: keepDays }),
+      });
+      notify("Old reports cleaned up.", "success");
+      await Promise.all([loadReports(0), loadDailySummary()]);
+    } catch (error) {
+      notify(messageOf(error, "Failed to cleanup reports."), "error");
+    } finally {
+      setCleanupLoading(false);
+    }
+  };
+
+  const copySummary = async () => {
+    try {
+      await copyText(dailySummary?.summary_text || "");
+      notify("Summary copied.", "success");
+    } catch {
+      notify("Copy failed.", "error");
+    }
+  };
+
+  const copyDailyNotification = async () => {
+    try {
+      await copyText(dailyPayload?.text_report || "");
+      notify("Daily report copied.", "success");
+    } catch {
+      notify("Copy failed.", "error");
+    }
+  };
+
   const followBreakdown = useMemo(
     () => Object.entries(overview?.follow_breakdown || {}),
     [overview],
   );
   const outboxStatus = useMemo(() => Object.entries(overview?.outbox_status || {}), [overview]);
-  const hasPrev = usersOffset > 0;
-  const hasNext = usersOffset + usersLimit < usersTotal;
+  const hasUsersPrev = usersOffset > 0;
+  const hasUsersNext = usersOffset + usersLimit < usersTotal;
+  const hasCdcPrev = cdcOffset > 0;
+  const hasCdcNext = cdcLastCount >= cdcLimit;
+  const hasReportsPrev = reportsOffset > 0;
+  const hasReportsNext = reportsLastCount >= reportsLimit;
+  const dailyItems = dailyPayload?.items || dailyPayload?.completed_items || [];
 
   if (!token) {
     return (
@@ -369,11 +731,14 @@ export const AdminPage = () => {
   return (
     <div className="admin-console">
       {toast ? (
-        <div className={`admin-toast ${toast.tone === "success" ? "success" : ""} ${toast.tone === "error" ? "error" : ""}`}>
+        <div
+          className={`admin-toast ${toast.tone === "success" ? "success" : ""} ${
+            toast.tone === "error" ? "error" : ""
+          }`}
+        >
           {toast.text}
         </div>
       ) : null}
-
       <div className="admin-shell">
         <header className="admin-header">
           <div>
@@ -392,15 +757,12 @@ export const AdminPage = () => {
         </header>
 
         <nav className="admin-tab-row">
-          <button type="button" className={`admin-tab-btn ${tab === "overview" ? "active" : ""}`} onClick={() => setTab("overview")}>
-            Overview
-          </button>
-          <button type="button" className={`admin-tab-btn ${tab === "users" ? "active" : ""}`} onClick={() => setTab("users")}>
-            Users
-          </button>
-          <button type="button" className={`admin-tab-btn ${tab === "ops" ? "active" : ""}`} onClick={() => setTab("ops")}>
-            Ops
-          </button>
+          <button type="button" className={`admin-tab-btn ${tab === "overview" ? "active" : ""}`} onClick={() => setTab("overview")}>Overview</button>
+          <button type="button" className={`admin-tab-btn ${tab === "users" ? "active" : ""}`} onClick={() => setTab("users")}>Users</button>
+          <button type="button" className={`admin-tab-btn ${tab === "cdcEvents" ? "active" : ""}`} onClick={() => setTab("cdcEvents")}>CDC Events</button>
+          <button type="button" className={`admin-tab-btn ${tab === "reports" ? "active" : ""}`} onClick={() => setTab("reports")}>Reports</button>
+          <button type="button" className={`admin-tab-btn ${tab === "dailyNotification" ? "active" : ""}`} onClick={() => setTab("dailyNotification")}>Daily Notification</button>
+          <button type="button" className={`admin-tab-btn ${tab === "ops" ? "active" : ""}`} onClick={() => setTab("ops")}>Ops</button>
         </nav>
 
         {tab === "overview" ? (
@@ -410,10 +772,22 @@ export const AdminPage = () => {
                 <h2>Core Metrics</h2>
                 {overviewLoading ? <p className="admin-muted">Loading...</p> : null}
                 <dl className="admin-kv">
-                  <div><dt>Users</dt><dd>{overview?.users_total ?? "-"}</dd></div>
-                  <div><dt>Follows</dt><dd>{overview?.follows_total ?? "-"}</dd></div>
-                  <div><dt>Events (24h)</dt><dd>{overview?.change_events_24h ?? "-"}</dd></div>
-                  <div><dt>Outbox (24h)</dt><dd>{overview?.outbox_24h ?? "-"}</dd></div>
+                  <div>
+                    <dt>Users</dt>
+                    <dd>{overview?.users_total ?? "-"}</dd>
+                  </div>
+                  <div>
+                    <dt>Follows</dt>
+                    <dd>{overview?.follows_total ?? "-"}</dd>
+                  </div>
+                  <div>
+                    <dt>Events (24h)</dt>
+                    <dd>{overview?.change_events_24h ?? "-"}</dd>
+                  </div>
+                  <div>
+                    <dt>Outbox (24h)</dt>
+                    <dd>{overview?.outbox_24h ?? "-"}</dd>
+                  </div>
                 </dl>
               </article>
 
@@ -421,7 +795,10 @@ export const AdminPage = () => {
                 <h2>Follow Breakdown</h2>
                 <ul className="admin-chip-list">
                   {followBreakdown.map(([key, value]) => (
-                    <li key={key}><span>{key}</span><strong>{value}</strong></li>
+                    <li key={key}>
+                      <span>{key}</span>
+                      <strong>{value}</strong>
+                    </li>
                   ))}
                 </ul>
                 {followBreakdown.length === 0 ? <p className="admin-muted">No data</p> : null}
@@ -431,7 +808,10 @@ export const AdminPage = () => {
                 <h2>Outbox Status</h2>
                 <ul className="admin-chip-list">
                   {outboxStatus.map(([key, value]) => (
-                    <li key={key}><span>{key}</span><strong>{value}</strong></li>
+                    <li key={key}>
+                      <span>{key}</span>
+                      <strong>{value}</strong>
+                    </li>
                   ))}
                 </ul>
                 {outboxStatus.length === 0 ? <p className="admin-muted">No data</p> : null}
@@ -452,16 +832,30 @@ export const AdminPage = () => {
                     </div>
                   ))}
                 </div>
-                {(overview?.top_users || []).length === 0 ? <p className="admin-muted">No data</p> : null}
+                {(overview?.top_users || []).length === 0 ? (
+                  <p className="admin-muted">No data</p>
+                ) : null}
               </article>
 
               <article className="admin-card">
                 <h2>Timeline</h2>
                 <dl className="admin-kv compact">
-                  <div><dt>Newest user</dt><dd>{formatDate(overview?.latest_user_created_at)}</dd></div>
-                  <div><dt>Newest follow</dt><dd>{formatDate(overview?.latest_follow_created_at)}</dd></div>
-                  <div><dt>Oldest pending</dt><dd>{formatDate(overview?.oldest_pending_created_at)}</dd></div>
-                  <div><dt>Admin restriction</dt><dd>{overview?.admin_restricted ? "ADMIN_EMAILS enabled" : "not configured"}</dd></div>
+                  <div>
+                    <dt>Newest user</dt>
+                    <dd>{formatDate(overview?.latest_user_created_at)}</dd>
+                  </div>
+                  <div>
+                    <dt>Newest follow</dt>
+                    <dd>{formatDate(overview?.latest_follow_created_at)}</dd>
+                  </div>
+                  <div>
+                    <dt>Oldest pending</dt>
+                    <dd>{formatDate(overview?.oldest_pending_created_at)}</dd>
+                  </div>
+                  <div>
+                    <dt>Admin restriction</dt>
+                    <dd>{overview?.admin_restricted ? "ADMIN_EMAILS enabled" : "not configured"}</dd>
+                  </div>
                 </dl>
               </article>
             </div>
@@ -473,38 +867,72 @@ export const AdminPage = () => {
             <article className="admin-card">
               <h2>User Search</h2>
               <div className="admin-search-row">
-                <input value={usersQuery} onChange={(event) => setUsersQuery(event.target.value)} placeholder="email or user_id" />
-                <button type="button" className="admin-link-btn" disabled={usersLoading} onClick={() => { setUsersOffset(0); void loadUsers(usersQuery, 0); }}>
+                <input
+                  value={usersQuery}
+                  onChange={(event) => setUsersQuery(event.target.value)}
+                  placeholder="email or user_id"
+                />
+                <button
+                  type="button"
+                  className="admin-link-btn"
+                  disabled={usersLoading}
+                  onClick={() => {
+                    setUsersOffset(0);
+                    void loadUsers(usersQuery, 0);
+                  }}
+                >
                   Search
                 </button>
               </div>
 
               <div className="admin-list">
                 {users.map((item) => (
-                  <button key={item.id} type="button" className={`admin-user-item ${selectedUser?.id === item.id ? "active" : ""}`} onClick={() => void loadUserFollows(item.id)}>
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`admin-user-item ${selectedUser?.id === item.id ? "active" : ""}`}
+                    onClick={() => void loadUserFollows(item.id)}
+                  >
                     <div>
                       <strong>{item.email}</strong>
                       <p className="admin-muted">user_id: {item.id}</p>
                     </div>
                     <div className="admin-user-meta">
                       <span>{item.follows_count} follows</span>
-                      {item.pending_outbox_count > 0 ? <span>{item.pending_outbox_count} pending</span> : null}
+                      {item.pending_outbox_count > 0 ? (
+                        <span>{item.pending_outbox_count} pending</span>
+                      ) : null}
                       {item.is_admin ? <span className="admin-pill">admin</span> : null}
                     </div>
                   </button>
                 ))}
                 {usersLoading ? <p className="admin-muted">Loading...</p> : null}
-                {!usersLoading && users.length === 0 ? <p className="admin-muted">No users found.</p> : null}
+                {!usersLoading && users.length === 0 ? (
+                  <p className="admin-muted">No users found.</p>
+                ) : null}
               </div>
 
               <div className="admin-inline-actions spread">
-                <button type="button" className="admin-link-btn secondary" disabled={!hasPrev || usersLoading} onClick={() => void loadUsers(usersQuery, Math.max(0, usersOffset - usersLimit))}>
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={!hasUsersPrev || usersLoading}
+                  onClick={() => void loadUsers(usersQuery, Math.max(0, usersOffset - usersLimit))}
+                >
                   Prev
                 </button>
                 <span className="admin-muted">
-                  {usersTotal === 0 ? "0" : `${usersOffset + 1}-${Math.min(usersOffset + usersLimit, usersTotal)}`} / {usersTotal}
+                  {usersTotal === 0
+                    ? "0"
+                    : `${usersOffset + 1}-${Math.min(usersOffset + usersLimit, usersTotal)}`}{" "}
+                  / {usersTotal}
                 </span>
-                <button type="button" className="admin-link-btn secondary" disabled={!hasNext || usersLoading} onClick={() => void loadUsers(usersQuery, usersOffset + usersLimit)}>
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={!hasUsersNext || usersLoading}
+                  onClick={() => void loadUsers(usersQuery, usersOffset + usersLimit)}
+                >
                   Next
                 </button>
               </div>
@@ -521,7 +949,12 @@ export const AdminPage = () => {
                       <p className="admin-muted">user_id: {selectedUser.id}</p>
                       <p className="admin-muted">joined: {formatDate(selectedUser.created_at)}</p>
                     </div>
-                    <button type="button" className="admin-link-btn" disabled={detailActionLoading} onClick={() => void refreshSelectedUser()}>
+                    <button
+                      type="button"
+                      className="admin-link-btn"
+                      disabled={detailActionLoading}
+                      onClick={() => void refreshSelectedUser()}
+                    >
                       Refresh User
                     </button>
                   </div>
@@ -536,19 +969,467 @@ export const AdminPage = () => {
                             {follow.season_number !== null ? ` / season:${follow.season_number}` : ""}
                           </p>
                           <p className="admin-muted">
-                            status: {follow.status_raw || "-"} / cache: {formatDate(follow.cache_updated_at)}
+                            status: {follow.status_raw || "-"} / cache:{" "}
+                            {formatDate(follow.cache_updated_at)}
                           </p>
                         </div>
                         <div className="admin-inline-actions">
                           <span className="admin-pill">{follow.frequency}</span>
-                          <button type="button" className="admin-link-btn danger" disabled={detailActionLoading} onClick={() => void deleteFollow(follow.id, follow.title, follow.tmdb_id)}>
+                          <button
+                            type="button"
+                            className="admin-link-btn danger"
+                            disabled={detailActionLoading}
+                            onClick={() =>
+                              void deleteFollow(follow.id, follow.title, follow.tmdb_id)
+                            }
+                          >
                             Delete
                           </button>
                         </div>
                       </div>
                     ))}
                     {detailLoading ? <p className="admin-muted">Loading...</p> : null}
-                    {!detailLoading && selectedFollows.length === 0 ? <p className="admin-muted">No follows.</p> : null}
+                    {!detailLoading && selectedFollows.length === 0 ? (
+                      <p className="admin-muted">No follows.</p>
+                    ) : null}
+                  </div>
+                </>
+              ) : null}
+            </article>
+          </section>
+        ) : null}
+
+        {tab === "cdcEvents" ? (
+          <section className="admin-section admin-two-col">
+            <article className="admin-card">
+              <h2>CDC Filters</h2>
+              <div className="admin-field">
+                <label>Search</label>
+                <input
+                  value={cdcQ}
+                  onChange={(event) => setCdcQ(event.target.value)}
+                  placeholder="email or tmdb id"
+                />
+              </div>
+              <div className="admin-field">
+                <label>Event Type</label>
+                <select value={cdcEventType} onChange={(event) => setCdcEventType(event.target.value)}>
+                  <option value="">All</option>
+                  <option value="date_set">date_set</option>
+                  <option value="date_changed">date_changed</option>
+                  <option value="status_milestone">status_milestone</option>
+                  <option value="season_binge_ready">season_binge_ready</option>
+                  <option value="full_run_concluded">full_run_concluded</option>
+                </select>
+              </div>
+              <div className="admin-field">
+                <label>Source Type</label>
+                <select value={cdcSource} onChange={(event) => setCdcSource(event.target.value)}>
+                  <option value="">All</option>
+                  <option value="movie">movie</option>
+                  <option value="tv_full">tv_full</option>
+                  <option value="tv_season">tv_season</option>
+                </select>
+              </div>
+              <div className="admin-field">
+                <label>Content Id</label>
+                <input
+                  value={cdcContentId}
+                  onChange={(event) => setCdcContentId(event.target.value)}
+                  placeholder="tmdb id"
+                />
+              </div>
+              <div className="admin-field">
+                <label>Created From</label>
+                <input
+                  type="datetime-local"
+                  value={cdcCreatedFrom}
+                  onChange={(event) => setCdcCreatedFrom(event.target.value)}
+                />
+              </div>
+              <div className="admin-field">
+                <label>Created To</label>
+                <input
+                  type="datetime-local"
+                  value={cdcCreatedTo}
+                  onChange={(event) => setCdcCreatedTo(event.target.value)}
+                />
+              </div>
+              <div className="admin-inline-actions">
+                <button
+                  type="button"
+                  className="admin-link-btn"
+                  disabled={cdcLoading}
+                  onClick={() => void loadCdcEvents(0)}
+                >
+                  Search
+                </button>
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={cdcLoading}
+                  onClick={() => {
+                    setCdcQ("");
+                    setCdcEventType("");
+                    setCdcSource("");
+                    setCdcContentId("");
+                    setCdcCreatedFrom("");
+                    setCdcCreatedTo("");
+                    setCdcOffset(0);
+                    setCdcEvents([]);
+                    setCdcLastCount(0);
+                  }}
+                >
+                  Reset
+                </button>
+              </div>
+              <div className="admin-inline-actions spread">
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={!hasCdcPrev || cdcLoading}
+                  onClick={() => void loadCdcEvents(Math.max(0, cdcOffset - cdcLimit))}
+                >
+                  Prev
+                </button>
+                <span className="admin-muted">offset: {cdcOffset}</span>
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={!hasCdcNext || cdcLoading}
+                  onClick={() => void loadCdcEvents(cdcOffset + cdcLimit)}
+                >
+                  Next
+                </button>
+              </div>
+            </article>
+
+            <article className="admin-card">
+              <h2>CDC Events</h2>
+              <div className="admin-list">
+                {cdcEvents.map((event) => (
+                  <div key={event.id} className="admin-list-item">
+                    <div>
+                      <strong>{event.event_type}</strong>
+                      <p className="admin-muted">
+                        {event.user_email || "-"} / {event.source || "-"} /{" "}
+                        {event.title || `TMDB ${event.tmdb_id || "-"}`}
+                      </p>
+                      <p className="admin-muted">
+                        content_id: {event.content_id || "-"} / season:{" "}
+                        {event.season_number === null ? "-" : event.season_number}
+                      </p>
+                      {event.event_payload ? (
+                        <p className="admin-muted">
+                          payload: {JSON.stringify(event.event_payload).slice(0, 160)}
+                        </p>
+                      ) : null}
+                    </div>
+                    <span className="admin-muted">{formatDate(event.created_at)}</span>
+                  </div>
+                ))}
+                {cdcLoading ? <p className="admin-muted">Loading...</p> : null}
+                {!cdcLoading && cdcEvents.length === 0 ? (
+                  <p className="admin-muted">No events found.</p>
+                ) : null}
+              </div>
+            </article>
+          </section>
+        ) : null}
+
+        {tab === "reports" ? (
+          <section className="admin-section admin-two-col">
+            <article className="admin-card">
+              <h2>Report Filters</h2>
+              <div className="admin-field">
+                <label>Job Name</label>
+                <input
+                  value={reportsCrawlerName}
+                  onChange={(event) => setReportsCrawlerName(event.target.value)}
+                  placeholder="dispatch_email, refresh_all, refresh_user"
+                />
+              </div>
+              <div className="admin-field">
+                <label>Status</label>
+                <select
+                  value={reportsStatus}
+                  onChange={(event) => setReportsStatus(event.target.value)}
+                >
+                  <option value="">All</option>
+                  <option value="success">success</option>
+                  <option value="warning">warning</option>
+                  <option value="failure">failure</option>
+                </select>
+              </div>
+              <div className="admin-field">
+                <label>Created From</label>
+                <input
+                  type="datetime-local"
+                  value={reportsCreatedFrom}
+                  onChange={(event) => setReportsCreatedFrom(event.target.value)}
+                />
+              </div>
+              <div className="admin-field">
+                <label>Created To</label>
+                <input
+                  type="datetime-local"
+                  value={reportsCreatedTo}
+                  onChange={(event) => setReportsCreatedTo(event.target.value)}
+                />
+              </div>
+              <div className="admin-inline-actions">
+                <button
+                  type="button"
+                  className="admin-link-btn"
+                  disabled={reportsLoading}
+                  onClick={() => void Promise.all([loadReports(0), loadDailySummary()])}
+                >
+                  Search
+                </button>
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={reportsLoading}
+                  onClick={() => {
+                    setReportsCrawlerName("");
+                    setReportsStatus("");
+                    setReportsCreatedFrom("");
+                    setReportsCreatedTo("");
+                    setReportsOffset(0);
+                    setReports([]);
+                    setReportsLastCount(0);
+                    setDailySummary(null);
+                  }}
+                >
+                  Reset
+                </button>
+              </div>
+              <div className="admin-inline-actions spread">
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={!hasReportsPrev || reportsLoading}
+                  onClick={() => void loadReports(Math.max(0, reportsOffset - reportsLimit))}
+                >
+                  Prev
+                </button>
+                <span className="admin-muted">offset: {reportsOffset}</span>
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={!hasReportsNext || reportsLoading}
+                  onClick={() => void loadReports(reportsOffset + reportsLimit)}
+                >
+                  Next
+                </button>
+              </div>
+
+              <hr className="admin-divider" />
+
+              <div className="admin-field">
+                <label>Cleanup Keep Days</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={cleanupKeepDays}
+                  onChange={(event) => setCleanupKeepDays(event.target.value)}
+                />
+              </div>
+              <button
+                type="button"
+                className="admin-link-btn danger"
+                disabled={cleanupLoading}
+                onClick={() => void cleanupReports()}
+              >
+                Cleanup Old Reports
+              </button>
+            </article>
+
+            <div className="admin-stack">
+              <article className="admin-card">
+                <div className="admin-inline-actions spread">
+                  <h2>Daily Summary</h2>
+                  <div className="admin-inline-actions">
+                    <button
+                      type="button"
+                      className="admin-link-btn secondary"
+                      disabled={dailySummaryLoading}
+                      onClick={() => void loadDailySummary()}
+                    >
+                      Refresh
+                    </button>
+                    <button
+                      type="button"
+                      className="admin-link-btn"
+                      disabled={!dailySummary?.summary_text}
+                      onClick={() => void copySummary()}
+                    >
+                      Copy Summary
+                    </button>
+                  </div>
+                </div>
+                {dailySummaryLoading ? <p className="admin-muted">Loading...</p> : null}
+                {dailySummary ? (
+                  <>
+                    <p className="admin-muted">{dailySummary.subject_text}</p>
+                    <ul className="admin-chip-list">
+                      {Object.entries(dailySummary.counts || {}).map(([key, count]) => (
+                        <li key={key}>
+                          <span>{key}</span>
+                          <strong>{count}</strong>
+                        </li>
+                      ))}
+                      <li>
+                        <span>total_reports</span>
+                        <strong>{dailySummary.total_reports}</strong>
+                      </li>
+                    </ul>
+                    <pre className="admin-pre">{dailySummary.summary_text}</pre>
+                  </>
+                ) : null}
+              </article>
+
+              <article className="admin-card">
+                <h2>Report List</h2>
+                <div className="admin-list">
+                  {reports.map((report) => (
+                    <div key={report.id} className="admin-list-item">
+                      <div>
+                        <strong>{report.crawler_name}</strong>
+                        <p className="admin-muted">
+                          {formatDate(report.created_at)} / {report.status}
+                        </p>
+                        <p className="admin-muted">{formatReportSummary(report.report_data)}</p>
+                        <details>
+                          <summary className="admin-muted">raw report data</summary>
+                          <pre className="admin-pre compact">
+                            {JSON.stringify(report.report_data, null, 2)}
+                          </pre>
+                        </details>
+                      </div>
+                      <span className={statusBadgeClass(report.normalized_status)}>
+                        {report.normalized_status}
+                      </span>
+                    </div>
+                  ))}
+                  {reportsLoading ? <p className="admin-muted">Loading...</p> : null}
+                  {!reportsLoading && reports.length === 0 ? (
+                    <p className="admin-muted">No reports found.</p>
+                  ) : null}
+                </div>
+              </article>
+            </div>
+          </section>
+        ) : null}
+
+        {tab === "dailyNotification" ? (
+          <section className="admin-section admin-two-col">
+            <article className="admin-card">
+              <h2>Daily Notification Report</h2>
+              <div className="admin-field">
+                <label>Date</label>
+                <input
+                  type="date"
+                  value={dailyDate}
+                  onChange={(event) => setDailyDate(event.target.value)}
+                />
+              </div>
+              <label className="admin-checkbox">
+                <input
+                  type="checkbox"
+                  checked={dailyIncludeFailed}
+                  onChange={(event) => setDailyIncludeFailed(event.target.checked)}
+                />
+                include failed
+              </label>
+              <label className="admin-checkbox">
+                <input
+                  type="checkbox"
+                  checked={dailyIncludePending}
+                  onChange={(event) => setDailyIncludePending(event.target.checked)}
+                />
+                include pending/sending
+              </label>
+              <div className="admin-inline-actions">
+                <button
+                  type="button"
+                  className="admin-link-btn"
+                  disabled={dailyLoading}
+                  onClick={() => void loadDailyNotification()}
+                >
+                  Load Report
+                </button>
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={!dailyPayload?.text_report}
+                  onClick={() => void copyDailyNotification()}
+                >
+                  Copy Report
+                </button>
+              </div>
+            </article>
+
+            <article className="admin-card">
+              <h2>Summary</h2>
+              {dailyLoading ? <p className="admin-muted">Loading...</p> : null}
+              {dailyPayload ? (
+                <>
+                  <ul className="admin-chip-list">
+                    <li>
+                      <span>total</span>
+                      <strong>{dailyPayload.stats.total_items}</strong>
+                    </li>
+                    <li>
+                      <span>sent</span>
+                      <strong>{dailyPayload.stats.sent_count}</strong>
+                    </li>
+                    <li>
+                      <span>pending</span>
+                      <strong>{dailyPayload.stats.pending_count}</strong>
+                    </li>
+                    <li>
+                      <span>failed</span>
+                      <strong>{dailyPayload.stats.failed_count}</strong>
+                    </li>
+                    <li>
+                      <span>recipients</span>
+                      <strong>{dailyPayload.stats.unique_recipients}</strong>
+                    </li>
+                  </ul>
+                  <p className="admin-muted">
+                    duration:{" "}
+                    {typeof dailyPayload.stats.duration_seconds === "number"
+                      ? `${dailyPayload.stats.duration_seconds.toFixed(2)}s`
+                      : "-"}
+                  </p>
+                  <p className="admin-muted">
+                    event_counts: {JSON.stringify(dailyPayload.stats.event_counts || {})}
+                  </p>
+                  <pre className="admin-pre">{dailyPayload.text_report}</pre>
+
+                  <h3>Items</h3>
+                  <div className="admin-list">
+                    {dailyItems.map((item) => (
+                      <div key={item.id} className="admin-list-item">
+                        <div>
+                          <strong>{item.title || `TMDB ${item.tmdb_id || "-"}`}</strong>
+                          <p className="admin-muted">
+                            {item.channel} / {item.status} / {item.user_email || "-"}
+                          </p>
+                          <p className="admin-muted">
+                            created: {formatDate(item.created_at)} / sent: {formatDate(item.sent_at)}
+                          </p>
+                          {item.last_error ? (
+                            <p className="admin-error-text">{item.last_error}</p>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                    {dailyItems.length === 0 ? (
+                      <p className="admin-muted">No items in selected date.</p>
+                    ) : null}
                   </div>
                 </>
               ) : null}
@@ -562,9 +1443,18 @@ export const AdminPage = () => {
               <h2>Manual Operations</h2>
               <div className="admin-field">
                 <label>dispatch batch (optional)</label>
-                <input value={dispatchBatch} onChange={(event) => setDispatchBatch(event.target.value)} placeholder="e.g. 50" />
+                <input
+                  value={dispatchBatch}
+                  onChange={(event) => setDispatchBatch(event.target.value)}
+                  placeholder="e.g. 50"
+                />
               </div>
-              <button type="button" className="admin-link-btn" disabled={opsLoading} onClick={() => void runDispatch()}>
+              <button
+                type="button"
+                className="admin-link-btn"
+                disabled={opsLoading}
+                onClick={() => void runDispatch()}
+              >
                 Run Email Dispatch
               </button>
 
@@ -572,29 +1462,64 @@ export const AdminPage = () => {
 
               <div className="admin-field">
                 <label>limit_users (optional)</label>
-                <input value={limitUsers} onChange={(event) => setLimitUsers(event.target.value)} placeholder="e.g. 100" />
+                <input
+                  value={limitUsers}
+                  onChange={(event) => setLimitUsers(event.target.value)}
+                  placeholder="e.g. 100"
+                />
               </div>
               <div className="admin-field">
                 <label>limit_follows (optional)</label>
-                <input value={limitFollows} onChange={(event) => setLimitFollows(event.target.value)} placeholder="e.g. 500" />
+                <input
+                  value={limitFollows}
+                  onChange={(event) => setLimitFollows(event.target.value)}
+                  placeholder="e.g. 500"
+                />
               </div>
               <label className="admin-checkbox">
-                <input type="checkbox" checked={forceRefresh} onChange={(event) => setForceRefresh(event.target.checked)} />
+                <input
+                  type="checkbox"
+                  checked={forceRefresh}
+                  onChange={(event) => setForceRefresh(event.target.checked)}
+                />
                 use force_fetch
               </label>
-              <button type="button" className="admin-link-btn" disabled={opsLoading} onClick={() => void runRefreshAll()}>
-                Run Refresh All
-              </button>
+              <div className="admin-inline-actions">
+                <button
+                  type="button"
+                  className="admin-link-btn"
+                  disabled={opsLoading}
+                  onClick={() => void runRefreshAll()}
+                >
+                  Run Refresh All
+                </button>
+                <button type="button" className="admin-link-btn secondary" onClick={saveOpsSettings}>
+                  Save Trigger Settings
+                </button>
+              </div>
             </article>
 
             <article className="admin-card">
-              <h2>Outbox Summary</h2>
+              <div className="admin-inline-actions spread">
+                <h2>Outbox Summary</h2>
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={summaryLoading}
+                  onClick={() => void loadOutboxSummary()}
+                >
+                  Refresh
+                </button>
+              </div>
               {summaryLoading ? <p className="admin-muted">Loading...</p> : null}
 
               <h3>By Status</h3>
               <ul className="admin-chip-list">
                 {Object.entries(summary?.by_status || {}).map(([status, count]) => (
-                  <li key={status}><span>{status}</span><strong>{count}</strong></li>
+                  <li key={status}>
+                    <span>{status}</span>
+                    <strong>{count}</strong>
+                  </li>
                 ))}
               </ul>
 
@@ -602,7 +1527,9 @@ export const AdminPage = () => {
               <div className="admin-list">
                 {(summary?.by_channel_and_status || []).map((row) => (
                   <div key={`${row.channel}-${row.status}`} className="admin-list-item">
-                    <span>{row.channel} / {row.status}</span>
+                    <span>
+                      {row.channel} / {row.status}
+                    </span>
                     <strong>{row.count}</strong>
                   </div>
                 ))}
@@ -614,14 +1541,20 @@ export const AdminPage = () => {
                   <div key={item.id} className="admin-list-item">
                     <div>
                       <strong>{item.email}</strong>
-                      <p className="admin-muted">{item.channel} / attempts: {item.attempt_count}</p>
-                      {item.last_error ? <p className="admin-error-text">{item.last_error}</p> : null}
+                      <p className="admin-muted">
+                        {item.channel} / attempts: {item.attempt_count}
+                      </p>
+                      {item.last_error ? (
+                        <p className="admin-error-text">{item.last_error}</p>
+                      ) : null}
                     </div>
                     <span className="admin-muted">{formatDate(item.created_at)}</span>
                   </div>
                 ))}
               </div>
-              <p className="admin-muted">oldest pending: {formatDate(summary?.oldest_pending_created_at)}</p>
+              <p className="admin-muted">
+                oldest pending: {formatDate(summary?.oldest_pending_created_at)}
+              </p>
             </article>
           </section>
         ) : null}

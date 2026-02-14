@@ -133,6 +133,32 @@ def init_db():
 
     cursor.execute(
         """
+        CREATE TABLE IF NOT EXISTS admin_job_reports (
+            id SERIAL PRIMARY KEY,
+            job_name TEXT NOT NULL,
+            status TEXT NOT NULL,
+            report_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        );
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS admin_job_reports_job_name_created_at_idx
+        ON admin_job_reports (job_name, created_at DESC);
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS admin_job_reports_created_at_idx
+        ON admin_job_reports (created_at DESC);
+        """
+    )
+
+    cursor.execute(
+        """
         ALTER TABLE notification_outbox
         ADD COLUMN IF NOT EXISTS change_event_id INT NULL;
         """
