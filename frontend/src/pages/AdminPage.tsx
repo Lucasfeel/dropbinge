@@ -1,77 +1,104 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { apiFetch } from "../api";
 import { useAuth } from "../hooks/useAuth";
 
 type TabKey =
-  | "overview"
   | "contents"
-  | "users"
-  | "recentPublication"
-  | "recentCompletion"
   | "missingCompletion"
   | "missingPublication"
   | "opsLog"
   | "cdcEvents"
   | "reports"
-  | "dailyNotification"
-  | "ops";
-type Tone = "info" | "success" | "error";
+  | "dailyNotification";
 
-type OverviewPayload = {
-  admin_restricted: boolean;
-  users_total: number;
-  follows_total: number;
-  follow_breakdown: Record<string, number>;
-  outbox_status: Record<string, number>;
-  change_events_24h: number;
-  outbox_24h: number;
-  oldest_pending_created_at: string | null;
-  latest_user_created_at: string | null;
-  latest_follow_created_at: string | null;
-  top_users: Array<{ id: number; email: string; follows_count: number }>;
+type Tone = "info" | "success" | "error";
+type ManagedMediaType = "movie" | "tv" | "season";
+
+type ManagedContentFields = {
+  status_raw: string | null;
+  release_date: string | null;
+  first_air_date: string | null;
+  last_air_date: string | null;
+  next_air_date: string | null;
+  season_air_date: string | null;
+  season_last_episode_air_date: string | null;
+  season_count: number | null;
+  episode_count: number | null;
+  last_episode_date: string | null;
+  next_episode_date: string | null;
+  final_state: string | null;
+  final_completed_at: string | null;
 };
 
-type UsersPayload = {
-  users: Array<{
-    id: number;
-    email: string;
-    follows_count: number;
-    pending_outbox_count: number;
-    is_admin: boolean;
-  }>;
+type ManagedContentOverride = {
+  id: number;
+  status_raw: string | null;
+  release_date: string | null;
+  next_air_date: string | null;
+  final_state: string | null;
+  final_completed_at: string | null;
+  reason: string | null;
+  admin_email: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+type ManagedContentItem = {
+  key: string;
+  media_type: ManagedMediaType;
+  tmdb_id: number;
+  season_number: number;
+  title: string;
+  poster_path: string | null;
+  backdrop_path: string | null;
+  base: ManagedContentFields;
+  override: ManagedContentOverride | null;
+  effective: {
+    status_raw: string | null;
+    release_date: string | null;
+    next_air_date: string | null;
+    final_state: string | null;
+    final_completed_at: string | null;
+    missing_final_completed_at: boolean;
+  };
+  payload?: Record<string, unknown>;
+  fetched_at?: string | null;
+  expires_at?: string | null;
+  updated_at: string | null;
+};
+
+type ManagedContentsPayload = {
+  success: boolean;
+  items: ManagedContentItem[];
   limit: number;
   offset: number;
-  total: number;
 };
 
-type UserFollowsPayload = {
-  user: { id: number; email: string; created_at: string; is_admin: boolean };
-  follows: Array<{
-    id: number;
-    target_type: "movie" | "tv_full" | "tv_season";
-    tmdb_id: number;
-    season_number: number | null;
-    title: string | null;
-    status_raw: string | null;
-    cache_updated_at: string | null;
-    frequency: string;
-  }>;
+type ManagedContentAuditLog = {
+  id: number;
+  created_at: string | null;
+  action_type: "OVERRIDE_UPSERT" | "OVERRIDE_DELETE" | string;
+  reason: string | null;
+  admin_email: string | null;
+  media_type: ManagedMediaType;
+  tmdb_id: number;
+  season_number: number;
+  title: string | null;
+  base_status_raw: string | null;
+  base_final_state: string | null;
+  base_final_completed_at: string | null;
+  effective_final_state: string | null;
+  effective_final_completed_at: string | null;
+  payload: Record<string, unknown>;
 };
 
-type OutboxSummaryPayload = {
-  by_status: Record<string, number>;
-  by_channel_and_status: Array<{ channel: string; status: string; count: number }>;
-  oldest_pending_created_at: string | null;
-  recent_failures: Array<{
-    id: number;
-    email: string;
-    channel: string;
-    attempt_count: number;
-    last_error: string | null;
-    created_at: string;
-  }>;
+type ManagedContentAuditPayload = {
+  success: boolean;
+  logs: ManagedContentAuditLog[];
+  limit: number;
+  offset: number;
 };
 
 type CdcEventItem = {
@@ -79,6 +106,7 @@ type CdcEventItem = {
   created_at: string | null;
   event_type: string;
   event_payload: Record<string, unknown> | null;
+  follow_id: number | null;
   user_id: number | null;
   user_email: string | null;
   source: string | null;
@@ -91,29 +119,6 @@ type CdcEventItem = {
 type CdcEventsPayload = {
   success: boolean;
   events: CdcEventItem[];
-  limit: number;
-  offset: number;
-};
-
-type RecentContentChangeItem = {
-  id: number;
-  created_at: string | null;
-  event_type: string;
-  source: "movie" | "tv_full" | "tv_season" | null;
-  media_type: "movie" | "tv" | "season" | null;
-  tmdb_id: number | null;
-  content_id: string | null;
-  season_number: number | null;
-  title: string | null;
-  field: string | null;
-  from_value: string | null;
-  to_value: string | null;
-  event_payload: Record<string, unknown>;
-};
-
-type RecentContentChangesPayload = {
-  success: boolean;
-  items: RecentContentChangeItem[];
   limit: number;
   offset: number;
 };
@@ -182,111 +187,25 @@ type DailyNotificationPayload = {
   text_report: string;
 };
 
-type ManagedContentFields = {
-  status_raw: string | null;
-  release_date: string | null;
-  next_air_date: string | null;
-  final_state: string | null;
-  final_completed_at: string | null;
-};
-
-type ManagedContentOverride = ManagedContentFields & {
-  id: number;
-  reason: string | null;
-  admin_email: string | null;
-  created_at: string | null;
-  updated_at: string | null;
-};
-
-type ManagedContentItem = {
-  key: string;
-  media_type: "movie" | "tv" | "season";
+type ContentLookupTarget = {
+  media_type: ManagedMediaType;
   tmdb_id: number;
   season_number: number;
-  title: string;
-  poster_path: string | null;
-  backdrop_path: string | null;
-  base: ManagedContentFields;
-  override: ManagedContentOverride | null;
-  effective: ManagedContentFields & { missing_final_completed_at: boolean };
-  updated_at: string | null;
 };
 
-type ManagedContentsPayload = {
-  success: boolean;
-  items: ManagedContentItem[];
-  limit: number;
-  offset: number;
-};
-
-type ManagedContentOverrideEntry = {
-  media_type: "movie" | "tv" | "season";
-  tmdb_id: number;
-  season_number: number;
-  title: string;
-  override: ManagedContentOverride | null;
-  base: {
-    status_raw: string | null;
-    final_state: string | null;
-    final_completed_at: string | null;
-  };
-};
-
-type ManagedContentOverridesPayload = {
-  success: boolean;
-  items: ManagedContentOverrideEntry[];
-  limit: number;
-  offset: number;
-};
-
-type ManagedContentAuditLog = {
-  id: number;
-  created_at: string | null;
-  action_type: "OVERRIDE_UPSERT" | "OVERRIDE_DELETE";
-  reason: string | null;
-  admin_email: string | null;
-  media_type: "movie" | "tv" | "season";
-  tmdb_id: number;
-  season_number: number;
-  title: string | null;
-  base_status_raw: string | null;
-  base_final_state: string | null;
-  base_final_completed_at: string | null;
-  effective_final_state: string | null;
-  effective_final_completed_at: string | null;
-  payload: Record<string, unknown>;
-};
-
-type ManagedContentAuditPayload = {
-  success: boolean;
-  logs: ManagedContentAuditLog[];
-  limit: number;
-  offset: number;
-};
-
-type OpsSettings = {
-  dispatchBatch: string;
-  limitUsers: string;
-  limitFollows: string;
-  forceRefresh: boolean;
-};
-
-const OPS_SETTINGS_STORAGE_KEY = "dropbinge_admin_ops_settings";
-const TARGET_LABEL = {
-  movie: "Movie",
-  tv_full: "TV Full",
-  tv_season: "TV Season",
-} as const;
-const CONTENT_MEDIA_LABEL = {
+const MEDIA_LABEL: Record<ManagedMediaType, string> = {
   movie: "Movie",
   tv: "TV",
   season: "Season",
-} as const;
-const CHANGE_SOURCE_LABEL = {
+};
+
+const SOURCE_LABEL: Record<string, string> = {
   movie: "Movie",
   tv_full: "TV Full",
   tv_season: "TV Season",
-} as const;
+};
+
+const todayDateInput = () => new Date().toISOString().slice(0, 10);
 
 const formatDate = (value: string | null | undefined) => {
   if (!value) {
@@ -306,7 +225,6 @@ const formatDate = (value: string | null | undefined) => {
   }).format(parsed);
 };
 
-const todayDateInput = () => new Date().toISOString().slice(0, 10);
 const toDateInput = (value: string | null | undefined) => {
   if (!value) {
     return "";
@@ -343,30 +261,6 @@ const parseOptionalPositiveInt = (value: string) => {
   return parsed;
 };
 
-const formatChangeValue = (value: unknown) => {
-  if (value === null || value === undefined || value === "") {
-    return "-";
-  }
-  if (typeof value === "string") {
-    return value;
-  }
-  return JSON.stringify(value);
-};
-
-const recentItemToLookupTarget = (item: RecentContentChangeItem) => {
-  const source = item.source || "movie";
-  const mediaType = source === "tv_full" ? "tv" : source === "tv_season" ? "season" : "movie";
-  const tmdbId = item.tmdb_id || Number.parseInt(item.content_id || "0", 10);
-  if (!tmdbId || Number.isNaN(tmdbId)) {
-    return null;
-  }
-  return {
-    media_type: mediaType as "movie" | "tv" | "season",
-    tmdb_id: tmdbId,
-    season_number: mediaType === "season" ? item.season_number || 0 : -1,
-  };
-};
-
 const statusBadgeClass = (normalizedStatus: string) => {
   if (normalizedStatus === "success") {
     return "admin-pill status-success";
@@ -390,17 +284,27 @@ const formatReportSummary = (reportData: Record<string, unknown>) => {
     "claimed",
     "sent",
     "failed",
+    "duration_seconds",
   ];
   for (const key of keys) {
     const value = reportData[key];
     if (value !== undefined && value !== null && value !== "") {
-      if (typeof value === "string") {
-        return `${key}: ${value}`;
-      }
-      return `${key}: ${JSON.stringify(value)}`;
+      return `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`;
     }
   }
   return "-";
+};
+
+const formatPayloadSnippet = (payload: Record<string, unknown> | null | undefined) => {
+  if (!payload) {
+    return "-";
+  }
+  try {
+    const serialized = JSON.stringify(payload);
+    return serialized.length > 240 ? `${serialized.slice(0, 240)}...` : serialized;
+  } catch {
+    return "-";
+  }
 };
 
 const copyText = async (text: string) => {
@@ -425,24 +329,26 @@ const copyText = async (text: string) => {
   }
 };
 
+const contentTargetText = (item: ContentLookupTarget) =>
+  `${MEDIA_LABEL[item.media_type]} / tmdb:${item.tmdb_id}${
+    item.media_type === "season" ? ` / season:${item.season_number}` : ""
+  }`;
+
 export const AdminPage = () => {
   const { token, user, loadingUser, logout } = useAuth();
+  const canAccessAdmin = Boolean(token && user?.is_admin);
 
   const [tab, setTab] = useState<TabKey>("contents");
   const [toast, setToast] = useState<{ text: string; tone: Tone } | null>(null);
 
-  const [overview, setOverview] = useState<OverviewPayload | null>(null);
-  const [overviewLoading, setOverviewLoading] = useState(false);
-
   const [contentQ, setContentQ] = useState("");
   const [contentMediaType, setContentMediaType] = useState("");
   const [contentHasOverride, setContentHasOverride] = useState("");
-  const [contentMissingFinalDate, setContentMissingFinalDate] = useState(false);
+  const [contents, setContents] = useState<ManagedContentItem[]>([]);
+  const [contentsLoading, setContentsLoading] = useState(false);
   const [contentOffset, setContentOffset] = useState(0);
   const [contentLimit] = useState(30);
   const [contentLastCount, setContentLastCount] = useState(0);
-  const [contents, setContents] = useState<ManagedContentItem[]>([]);
-  const [contentsLoading, setContentsLoading] = useState(false);
   const [selectedContent, setSelectedContent] = useState<ManagedContentItem | null>(null);
 
   const [overrideStatusRaw, setOverrideStatusRaw] = useState("");
@@ -453,68 +359,30 @@ export const AdminPage = () => {
   const [overrideReason, setOverrideReason] = useState("");
   const [overrideSaving, setOverrideSaving] = useState(false);
 
-  const [contentOverrides, setContentOverrides] = useState<ManagedContentOverrideEntry[]>([]);
-  const [overridesLoading, setOverridesLoading] = useState(false);
-  const [overridesOffset, setOverridesOffset] = useState(0);
-  const [overridesLimit] = useState(20);
-  const [overridesLastCount, setOverridesLastCount] = useState(0);
+  const [missingCompletionQ, setMissingCompletionQ] = useState("");
+  const [missingCompletionMediaType, setMissingCompletionMediaType] = useState("");
+  const [missingCompletionItems, setMissingCompletionItems] = useState<ManagedContentItem[]>([]);
+  const [missingCompletionLoading, setMissingCompletionLoading] = useState(false);
+  const [missingCompletionOffset, setMissingCompletionOffset] = useState(0);
+  const [missingCompletionLimit] = useState(30);
+  const [missingCompletionLastCount, setMissingCompletionLastCount] = useState(0);
 
-  const [recentPublicationChanges, setRecentPublicationChanges] = useState<RecentContentChangeItem[]>(
-    [],
-  );
-  const [recentPublicationLoading, setRecentPublicationLoading] = useState(false);
-  const [recentPublicationOffset, setRecentPublicationOffset] = useState(0);
-  const [recentPublicationLimit] = useState(20);
-  const [recentPublicationLastCount, setRecentPublicationLastCount] = useState(0);
-
-  const [recentCompletionChanges, setRecentCompletionChanges] = useState<RecentContentChangeItem[]>(
-    [],
-  );
-  const [recentCompletionLoading, setRecentCompletionLoading] = useState(false);
-  const [recentCompletionOffset, setRecentCompletionOffset] = useState(0);
-  const [recentCompletionLimit] = useState(20);
-  const [recentCompletionLastCount, setRecentCompletionLastCount] = useState(0);
-
-  const [missingContents, setMissingContents] = useState<ManagedContentItem[]>([]);
-  const [missingLoading, setMissingLoading] = useState(false);
-  const [missingOffset, setMissingOffset] = useState(0);
-  const [missingLimit] = useState(20);
-  const [missingLastCount, setMissingLastCount] = useState(0);
-
-  const [missingPublicationContents, setMissingPublicationContents] = useState<ManagedContentItem[]>(
-    [],
-  );
+  const [missingPublicationQ, setMissingPublicationQ] = useState("");
+  const [missingPublicationMediaType, setMissingPublicationMediaType] = useState("");
+  const [missingPublicationItems, setMissingPublicationItems] = useState<ManagedContentItem[]>([]);
   const [missingPublicationLoading, setMissingPublicationLoading] = useState(false);
   const [missingPublicationOffset, setMissingPublicationOffset] = useState(0);
-  const [missingPublicationLimit] = useState(20);
+  const [missingPublicationLimit] = useState(30);
   const [missingPublicationLastCount, setMissingPublicationLastCount] = useState(0);
 
-  const [contentAuditActionType, setContentAuditActionType] = useState("");
-  const [contentAuditLogs, setContentAuditLogs] = useState<ManagedContentAuditLog[]>([]);
-  const [contentAuditLoading, setContentAuditLoading] = useState(false);
-  const [contentAuditOffset, setContentAuditOffset] = useState(0);
-  const [contentAuditLimit] = useState(20);
-  const [contentAuditLastCount, setContentAuditLastCount] = useState(0);
-
-  const [usersQuery, setUsersQuery] = useState("");
-  const [users, setUsers] = useState<UsersPayload["users"]>([]);
-  const [usersOffset, setUsersOffset] = useState(0);
-  const [usersTotal, setUsersTotal] = useState(0);
-  const [usersLimit, setUsersLimit] = useState(20);
-  const [usersLoading, setUsersLoading] = useState(false);
-
-  const [selectedUser, setSelectedUser] = useState<UserFollowsPayload["user"] | null>(null);
-  const [selectedFollows, setSelectedFollows] = useState<UserFollowsPayload["follows"]>([]);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailActionLoading, setDetailActionLoading] = useState(false);
-
-  const [summary, setSummary] = useState<OutboxSummaryPayload | null>(null);
-  const [summaryLoading, setSummaryLoading] = useState(false);
-  const [opsLoading, setOpsLoading] = useState(false);
-  const [dispatchBatch, setDispatchBatch] = useState("");
-  const [limitUsers, setLimitUsers] = useState("");
-  const [limitFollows, setLimitFollows] = useState("");
-  const [forceRefresh, setForceRefresh] = useState(false);
+  const [auditQ, setAuditQ] = useState("");
+  const [auditActionType, setAuditActionType] = useState("");
+  const [auditMediaType, setAuditMediaType] = useState("");
+  const [auditLogs, setAuditLogs] = useState<ManagedContentAuditLog[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditOffset, setAuditOffset] = useState(0);
+  const [auditLimit] = useState(30);
+  const [auditLastCount, setAuditLastCount] = useState(0);
 
   const [cdcQ, setCdcQ] = useState("");
   const [cdcEventType, setCdcEventType] = useState("");
@@ -522,21 +390,21 @@ export const AdminPage = () => {
   const [cdcContentId, setCdcContentId] = useState("");
   const [cdcCreatedFrom, setCdcCreatedFrom] = useState("");
   const [cdcCreatedTo, setCdcCreatedTo] = useState("");
+  const [cdcEvents, setCdcEvents] = useState<CdcEventItem[]>([]);
+  const [cdcLoading, setCdcLoading] = useState(false);
   const [cdcOffset, setCdcOffset] = useState(0);
   const [cdcLimit] = useState(50);
   const [cdcLastCount, setCdcLastCount] = useState(0);
-  const [cdcEvents, setCdcEvents] = useState<CdcEventItem[]>([]);
-  const [cdcLoading, setCdcLoading] = useState(false);
 
   const [reportsCrawlerName, setReportsCrawlerName] = useState("");
   const [reportsStatus, setReportsStatus] = useState("");
   const [reportsCreatedFrom, setReportsCreatedFrom] = useState("");
   const [reportsCreatedTo, setReportsCreatedTo] = useState("");
+  const [reports, setReports] = useState<JobReportItem[]>([]);
+  const [reportsLoading, setReportsLoading] = useState(false);
   const [reportsOffset, setReportsOffset] = useState(0);
   const [reportsLimit] = useState(50);
   const [reportsLastCount, setReportsLastCount] = useState(0);
-  const [reports, setReports] = useState<JobReportItem[]>([]);
-  const [reportsLoading, setReportsLoading] = useState(false);
   const [dailySummary, setDailySummary] = useState<DailySummaryPayload | null>(null);
   const [dailySummaryLoading, setDailySummaryLoading] = useState(false);
   const [cleanupKeepDays, setCleanupKeepDays] = useState("14");
@@ -547,8 +415,6 @@ export const AdminPage = () => {
   const [dailyIncludePending, setDailyIncludePending] = useState(false);
   const [dailyPayload, setDailyPayload] = useState<DailyNotificationPayload | null>(null);
   const [dailyLoading, setDailyLoading] = useState(false);
-
-  const canAccessAdmin = Boolean(token && user?.is_admin);
 
   const notify = (text: string, tone: Tone = "info") => {
     setToast({ text, tone });
@@ -563,41 +429,6 @@ export const AdminPage = () => {
   }, [toast]);
 
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(OPS_SETTINGS_STORAGE_KEY);
-      if (!raw) {
-        return;
-      }
-      const parsed = JSON.parse(raw) as OpsSettings;
-      if (typeof parsed.dispatchBatch === "string") {
-        setDispatchBatch(parsed.dispatchBatch);
-      }
-      if (typeof parsed.limitUsers === "string") {
-        setLimitUsers(parsed.limitUsers);
-      }
-      if (typeof parsed.limitFollows === "string") {
-        setLimitFollows(parsed.limitFollows);
-      }
-      if (typeof parsed.forceRefresh === "boolean") {
-        setForceRefresh(parsed.forceRefresh);
-      }
-    } catch {
-      // ignore local storage parse errors
-    }
-  }, []);
-
-  const saveOpsSettings = () => {
-    const payload: OpsSettings = {
-      dispatchBatch,
-      limitUsers,
-      limitFollows,
-      forceRefresh,
-    };
-    window.localStorage.setItem(OPS_SETTINGS_STORAGE_KEY, JSON.stringify(payload));
-    notify("Trigger settings saved.", "success");
-  };
-
-  useEffect(() => {
     const current = selectedContent?.override;
     setOverrideStatusRaw(current?.status_raw || "");
     setOverrideReleaseDate(toDateInput(current?.release_date));
@@ -607,29 +438,28 @@ export const AdminPage = () => {
     setOverrideReason(current?.reason || "");
   }, [selectedContent]);
 
-  const loadOverview = async () => {
-    setOverviewLoading(true);
-    try {
-      const payload = await apiFetch<OverviewPayload>("/api/admin/overview");
-      setOverview(payload);
-    } catch (error) {
-      notify(messageOf(error, "Failed to load overview."), "error");
-    } finally {
-      setOverviewLoading(false);
-    }
-  };
-
-  const loadContents = async (nextOffset = contentOffset) => {
+  const loadContents = async (
+    nextOffset = contentOffset,
+    filters?: { q?: string; mediaType?: string; hasOverride?: string },
+  ) => {
     setContentsLoading(true);
     try {
+      const q = filters?.q ?? contentQ;
+      const mediaType = filters?.mediaType ?? contentMediaType;
+      const hasOverride = filters?.hasOverride ?? contentHasOverride;
       const params = new URLSearchParams({
         limit: String(contentLimit),
         offset: String(nextOffset),
       });
-      if (contentQ.trim()) params.set("q", contentQ.trim());
-      if (contentMediaType) params.set("media_type", contentMediaType);
-      if (contentHasOverride) params.set("has_override", contentHasOverride);
-      if (contentMissingFinalDate) params.set("missing_final_date", "1");
+      if (q.trim()) {
+        params.set("q", q.trim());
+      }
+      if (mediaType) {
+        params.set("media_type", mediaType);
+      }
+      if (hasOverride) {
+        params.set("has_override", hasOverride);
+      }
       const payload = await apiFetch<ManagedContentsPayload>(
         `/api/admin/contents/search?${params.toString()}`,
       );
@@ -638,11 +468,14 @@ export const AdminPage = () => {
       setContentOffset(payload.offset);
       setContentLastCount(items.length);
       setSelectedContent((prev) => {
-        if (!prev) {
+        if (!items.length) {
           return null;
         }
+        if (!prev) {
+          return items[0];
+        }
         const matched = items.find((item) => item.key === prev.key);
-        return matched || null;
+        return matched || items[0];
       });
     } catch (error) {
       notify(messageOf(error, "Failed to load contents."), "error");
@@ -651,11 +484,7 @@ export const AdminPage = () => {
     }
   };
 
-  const loadContentLookup = async (
-    target:
-      | { media_type: "movie" | "tv" | "season"; tmdb_id: number; season_number: number }
-      | ManagedContentItem,
-  ) => {
+  const loadContentLookup = async (target: ContentLookupTarget | ManagedContentItem) => {
     try {
       const params = new URLSearchParams({
         media_type: target.media_type,
@@ -667,115 +496,75 @@ export const AdminPage = () => {
       );
       const content = payload.content;
       setSelectedContent(content);
-      setContents((prev) => prev.map((item) => (item.key === content.key ? content : item)));
+      setContents((prev) => {
+        const exists = prev.some((item) => item.key === content.key);
+        if (!exists) {
+          return prev;
+        }
+        return prev.map((item) => (item.key === content.key ? content : item));
+      });
     } catch (error) {
       notify(messageOf(error, "Failed to load content details."), "error");
     }
   };
 
-  const loadContentOverrides = async (nextOffset = overridesOffset) => {
-    setOverridesLoading(true);
+  const loadMissingCompletion = async (
+    nextOffset = missingCompletionOffset,
+    filters?: { q?: string; mediaType?: string },
+  ) => {
+    setMissingCompletionLoading(true);
     try {
+      const q = filters?.q ?? missingCompletionQ;
+      const mediaType = filters?.mediaType ?? missingCompletionMediaType;
       const params = new URLSearchParams({
-        limit: String(overridesLimit),
+        limit: String(missingCompletionLimit),
         offset: String(nextOffset),
       });
-      if (contentQ.trim()) params.set("q", contentQ.trim());
-      if (contentMediaType) params.set("media_type", contentMediaType);
-      const payload = await apiFetch<ManagedContentOverridesPayload>(
-        `/api/admin/contents/overrides?${params.toString()}`,
-      );
-      setContentOverrides(payload.items || []);
-      setOverridesOffset(payload.offset);
-      setOverridesLastCount((payload.items || []).length);
-    } catch (error) {
-      notify(messageOf(error, "Failed to load override history."), "error");
-    } finally {
-      setOverridesLoading(false);
-    }
-  };
-
-  const loadRecentPublicationChanges = async (nextOffset = recentPublicationOffset) => {
-    setRecentPublicationLoading(true);
-    try {
-      const params = new URLSearchParams({
-        limit: String(recentPublicationLimit),
-        offset: String(nextOffset),
-      });
-      if (contentQ.trim()) params.set("q", contentQ.trim());
-      if (contentMediaType) params.set("media_type", contentMediaType);
-      const payload = await apiFetch<RecentContentChangesPayload>(
-        `/api/admin/contents/recent-publication-changes?${params.toString()}`,
-      );
-      setRecentPublicationChanges(payload.items || []);
-      setRecentPublicationOffset(payload.offset);
-      setRecentPublicationLastCount((payload.items || []).length);
-    } catch (error) {
-      notify(messageOf(error, "Failed to load recent publication changes."), "error");
-    } finally {
-      setRecentPublicationLoading(false);
-    }
-  };
-
-  const loadRecentCompletionChanges = async (nextOffset = recentCompletionOffset) => {
-    setRecentCompletionLoading(true);
-    try {
-      const params = new URLSearchParams({
-        limit: String(recentCompletionLimit),
-        offset: String(nextOffset),
-      });
-      if (contentQ.trim()) params.set("q", contentQ.trim());
-      if (contentMediaType) params.set("media_type", contentMediaType);
-      const payload = await apiFetch<RecentContentChangesPayload>(
-        `/api/admin/contents/recent-completion-changes?${params.toString()}`,
-      );
-      setRecentCompletionChanges(payload.items || []);
-      setRecentCompletionOffset(payload.offset);
-      setRecentCompletionLastCount((payload.items || []).length);
-    } catch (error) {
-      notify(messageOf(error, "Failed to load recent completion changes."), "error");
-    } finally {
-      setRecentCompletionLoading(false);
-    }
-  };
-
-  const loadMissingContents = async (nextOffset = missingOffset) => {
-    setMissingLoading(true);
-    try {
-      const params = new URLSearchParams({
-        limit: String(missingLimit),
-        offset: String(nextOffset),
-      });
-      if (contentQ.trim()) params.set("q", contentQ.trim());
-      if (contentMediaType) params.set("media_type", contentMediaType);
+      if (q.trim()) {
+        params.set("q", q.trim());
+      }
+      if (mediaType) {
+        params.set("media_type", mediaType);
+      }
       const payload = await apiFetch<ManagedContentsPayload>(
         `/api/admin/contents/missing-final-date?${params.toString()}`,
       );
-      setMissingContents(payload.items || []);
-      setMissingOffset(payload.offset);
-      setMissingLastCount((payload.items || []).length);
+      const items = payload.items || [];
+      setMissingCompletionItems(items);
+      setMissingCompletionOffset(payload.offset);
+      setMissingCompletionLastCount(items.length);
     } catch (error) {
       notify(messageOf(error, "Failed to load missing final-date contents."), "error");
     } finally {
-      setMissingLoading(false);
+      setMissingCompletionLoading(false);
     }
   };
 
-  const loadMissingPublicationContents = async (nextOffset = missingPublicationOffset) => {
+  const loadMissingPublication = async (
+    nextOffset = missingPublicationOffset,
+    filters?: { q?: string; mediaType?: string },
+  ) => {
     setMissingPublicationLoading(true);
     try {
+      const q = filters?.q ?? missingPublicationQ;
+      const mediaType = filters?.mediaType ?? missingPublicationMediaType;
       const params = new URLSearchParams({
         limit: String(missingPublicationLimit),
         offset: String(nextOffset),
       });
-      if (contentQ.trim()) params.set("q", contentQ.trim());
-      if (contentMediaType) params.set("media_type", contentMediaType);
+      if (q.trim()) {
+        params.set("q", q.trim());
+      }
+      if (mediaType) {
+        params.set("media_type", mediaType);
+      }
       const payload = await apiFetch<ManagedContentsPayload>(
         `/api/admin/contents/missing-publication-date?${params.toString()}`,
       );
-      setMissingPublicationContents(payload.items || []);
+      const items = payload.items || [];
+      setMissingPublicationItems(items);
       setMissingPublicationOffset(payload.offset);
-      setMissingPublicationLastCount((payload.items || []).length);
+      setMissingPublicationLastCount(items.length);
     } catch (error) {
       notify(messageOf(error, "Failed to load missing publication-date contents."), "error");
     } finally {
@@ -783,31 +572,194 @@ export const AdminPage = () => {
     }
   };
 
-  const loadContentAuditLogs = async (nextOffset = contentAuditOffset) => {
-    setContentAuditLoading(true);
+  const loadAuditLogs = async (
+    nextOffset = auditOffset,
+    filters?: { q?: string; actionType?: string; mediaType?: string },
+  ) => {
+    setAuditLoading(true);
     try {
+      const q = filters?.q ?? auditQ;
+      const actionType = filters?.actionType ?? auditActionType;
+      const mediaType = filters?.mediaType ?? auditMediaType;
       const params = new URLSearchParams({
-        limit: String(contentAuditLimit),
+        limit: String(auditLimit),
         offset: String(nextOffset),
       });
-      if (contentQ.trim()) params.set("q", contentQ.trim());
-      if (contentMediaType) params.set("media_type", contentMediaType);
-      if (contentAuditActionType) params.set("action_type", contentAuditActionType);
+      if (q.trim()) {
+        params.set("q", q.trim());
+      }
+      if (actionType) {
+        params.set("action_type", actionType);
+      }
+      if (mediaType) {
+        params.set("media_type", mediaType);
+      }
       const payload = await apiFetch<ManagedContentAuditPayload>(
         `/api/admin/audit/logs?${params.toString()}`,
       );
-      setContentAuditLogs(payload.logs || []);
-      setContentAuditOffset(payload.offset);
-      setContentAuditLastCount((payload.logs || []).length);
+      const logs = payload.logs || [];
+      setAuditLogs(logs);
+      setAuditOffset(payload.offset);
+      setAuditLastCount(logs.length);
     } catch (error) {
-      notify(messageOf(error, "Failed to load content audit logs."), "error");
+      notify(messageOf(error, "Failed to load operation logs."), "error");
     } finally {
-      setContentAuditLoading(false);
+      setAuditLoading(false);
+    }
+  };
+
+  const loadCdcEvents = async (
+    nextOffset = cdcOffset,
+    filters?: {
+      q?: string;
+      eventType?: string;
+      source?: string;
+      contentId?: string;
+      createdFrom?: string;
+      createdTo?: string;
+    },
+  ) => {
+    setCdcLoading(true);
+    try {
+      const q = filters?.q ?? cdcQ;
+      const eventType = filters?.eventType ?? cdcEventType;
+      const source = filters?.source ?? cdcSource;
+      const contentId = filters?.contentId ?? cdcContentId;
+      const createdFrom = filters?.createdFrom ?? cdcCreatedFrom;
+      const createdTo = filters?.createdTo ?? cdcCreatedTo;
+      const params = new URLSearchParams({
+        limit: String(cdcLimit),
+        offset: String(nextOffset),
+      });
+      if (q.trim()) {
+        params.set("q", q.trim());
+      }
+      if (eventType) {
+        params.set("event_type", eventType);
+      }
+      if (source) {
+        params.set("source", source);
+      }
+      if (contentId.trim()) {
+        params.set("content_id", contentId.trim());
+      }
+      if (createdFrom) {
+        params.set("created_from", createdFrom);
+      }
+      if (createdTo) {
+        params.set("created_to", createdTo);
+      }
+      const payload = await apiFetch<CdcEventsPayload>(`/api/admin/cdc/events?${params.toString()}`);
+      const items = payload.events || [];
+      setCdcEvents(items);
+      setCdcOffset(payload.offset);
+      setCdcLastCount(items.length);
+    } catch (error) {
+      notify(messageOf(error, "Failed to load CDC events."), "error");
+    } finally {
+      setCdcLoading(false);
+    }
+  };
+
+  const loadReports = async (
+    nextOffset = reportsOffset,
+    filters?: {
+      crawlerName?: string;
+      status?: string;
+      createdFrom?: string;
+      createdTo?: string;
+    },
+  ) => {
+    setReportsLoading(true);
+    try {
+      const crawlerName = filters?.crawlerName ?? reportsCrawlerName;
+      const status = filters?.status ?? reportsStatus;
+      const createdFrom = filters?.createdFrom ?? reportsCreatedFrom;
+      const createdTo = filters?.createdTo ?? reportsCreatedTo;
+      const params = new URLSearchParams({
+        limit: String(reportsLimit),
+        offset: String(nextOffset),
+      });
+      if (crawlerName.trim()) {
+        params.set("crawler_name", crawlerName.trim());
+      }
+      if (status) {
+        params.set("status", status);
+      }
+      if (createdFrom) {
+        params.set("created_from", createdFrom);
+      }
+      if (createdTo) {
+        params.set("created_to", createdTo);
+      }
+      const payload = await apiFetch<JobReportsPayload>(
+        `/api/admin/reports/daily-crawler?${params.toString()}`,
+      );
+      const items = payload.reports || [];
+      setReports(items);
+      setReportsOffset(payload.offset);
+      setReportsLastCount(items.length);
+    } catch (error) {
+      notify(messageOf(error, "Failed to load job reports."), "error");
+    } finally {
+      setReportsLoading(false);
+    }
+  };
+
+  const loadDailySummary = async (filters?: { createdFrom?: string; createdTo?: string }) => {
+    setDailySummaryLoading(true);
+    try {
+      const createdFrom = filters?.createdFrom ?? reportsCreatedFrom;
+      const createdTo = filters?.createdTo ?? reportsCreatedTo;
+      const params = new URLSearchParams();
+      if (createdFrom) {
+        params.set("created_from", createdFrom);
+      }
+      if (createdTo) {
+        params.set("created_to", createdTo);
+      }
+      const url = params.toString()
+        ? `/api/admin/reports/daily-summary?${params.toString()}`
+        : "/api/admin/reports/daily-summary";
+      const payload = await apiFetch<DailySummaryPayload>(url);
+      setDailySummary(payload);
+    } catch (error) {
+      notify(messageOf(error, "Failed to load daily summary."), "error");
+      setDailySummary(null);
+    } finally {
+      setDailySummaryLoading(false);
+    }
+  };
+
+  const loadDailyNotification = async () => {
+    setDailyLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (dailyDate) {
+        params.set("date", dailyDate);
+      }
+      if (dailyIncludeFailed) {
+        params.set("include_failed", "1");
+      }
+      if (dailyIncludePending) {
+        params.set("include_pending", "1");
+      }
+      const payload = await apiFetch<DailyNotificationPayload>(
+        `/api/admin/reports/daily-notification?${params.toString()}`,
+      );
+      setDailyPayload(payload);
+    } catch (error) {
+      notify(messageOf(error, "Failed to load daily notification report."), "error");
+      setDailyPayload(null);
+    } finally {
+      setDailyLoading(false);
     }
   };
 
   const saveContentOverride = async () => {
-    if (!selectedContent) return;
+    if (!selectedContent) {
+      return;
+    }
     setOverrideSaving(true);
     try {
       const body = {
@@ -829,32 +781,25 @@ export const AdminPage = () => {
         },
       );
       if (payload.content) {
-        const updatedContent = payload.content;
-        setSelectedContent(updatedContent);
+        setSelectedContent(payload.content);
         setContents((prev) =>
-          prev.map((item) => (item.key === updatedContent.key ? updatedContent : item)),
+          prev.map((item) => (item.key === payload.content?.key ? payload.content : item)),
         );
       }
-      notify("Content override saved.", "success");
-      await Promise.all([
-        loadContentOverrides(0),
-        loadRecentCompletionChanges(0),
-        loadMissingContents(0),
-        loadMissingPublicationContents(0),
-        loadContentAuditLogs(0),
-      ]);
+      notify("Override saved.", "success");
+      await Promise.all([loadContents(contentOffset), loadMissingCompletion(0), loadMissingPublication(0)]);
     } catch (error) {
-      notify(messageOf(error, "Failed to save content override."), "error");
+      notify(messageOf(error, "Failed to save override."), "error");
     } finally {
       setOverrideSaving(false);
     }
   };
 
   const deleteContentOverride = async () => {
-    if (!selectedContent) return;
-    const confirmed = window.confirm(
-      `Delete override for ${selectedContent.title || `TMDB ${selectedContent.tmdb_id}`}?`,
-    );
+    if (!selectedContent) {
+      return;
+    }
+    const confirmed = window.confirm(`Delete override for ${selectedContent.title}?`);
     if (!confirmed) {
       return;
     }
@@ -873,276 +818,17 @@ export const AdminPage = () => {
         },
       );
       if (payload.content) {
-        const updatedContent = payload.content;
-        setSelectedContent(updatedContent);
+        setSelectedContent(payload.content);
         setContents((prev) =>
-          prev.map((item) => (item.key === updatedContent.key ? updatedContent : item)),
+          prev.map((item) => (item.key === payload.content?.key ? payload.content : item)),
         );
       }
-      notify("Content override deleted.", "success");
-      await Promise.all([
-        loadContentOverrides(0),
-        loadRecentCompletionChanges(0),
-        loadMissingContents(0),
-        loadMissingPublicationContents(0),
-        loadContentAuditLogs(0),
-      ]);
+      notify("Override deleted.", "success");
+      await Promise.all([loadContents(contentOffset), loadMissingCompletion(0), loadMissingPublication(0)]);
     } catch (error) {
-      notify(messageOf(error, "Failed to delete content override."), "error");
+      notify(messageOf(error, "Failed to delete override."), "error");
     } finally {
       setOverrideSaving(false);
-    }
-  };
-
-  const loadUsers = async (query: string, offset: number) => {
-    setUsersLoading(true);
-    try {
-      const params = new URLSearchParams({
-        q: query,
-        limit: String(usersLimit),
-        offset: String(offset),
-      });
-      const payload = await apiFetch<UsersPayload>(`/api/admin/users?${params.toString()}`);
-      setUsers(payload.users);
-      setUsersOffset(payload.offset);
-      setUsersTotal(payload.total);
-      setUsersLimit(payload.limit);
-    } catch (error) {
-      notify(messageOf(error, "Failed to load users."), "error");
-    } finally {
-      setUsersLoading(false);
-    }
-  };
-
-  const loadUserFollows = async (userId: number) => {
-    setDetailLoading(true);
-    try {
-      const payload = await apiFetch<UserFollowsPayload>(`/api/admin/users/${userId}/follows`);
-      setSelectedUser(payload.user);
-      setSelectedFollows(payload.follows);
-    } catch (error) {
-      setSelectedUser(null);
-      setSelectedFollows([]);
-      notify(messageOf(error, "Failed to load user details."), "error");
-    } finally {
-      setDetailLoading(false);
-    }
-  };
-
-  const loadOutboxSummary = async () => {
-    setSummaryLoading(true);
-    try {
-      const payload = await apiFetch<OutboxSummaryPayload>("/api/admin/outbox/summary");
-      setSummary(payload);
-    } catch (error) {
-      notify(messageOf(error, "Failed to load outbox summary."), "error");
-    } finally {
-      setSummaryLoading(false);
-    }
-  };
-
-  const loadCdcEvents = async (nextOffset = cdcOffset) => {
-    setCdcLoading(true);
-    try {
-      const params = new URLSearchParams({
-        limit: String(cdcLimit),
-        offset: String(nextOffset),
-      });
-      if (cdcQ.trim()) params.set("q", cdcQ.trim());
-      if (cdcEventType) params.set("event_type", cdcEventType);
-      if (cdcSource) params.set("source", cdcSource);
-      if (cdcContentId.trim()) params.set("content_id", cdcContentId.trim());
-      if (cdcCreatedFrom) params.set("created_from", cdcCreatedFrom);
-      if (cdcCreatedTo) params.set("created_to", cdcCreatedTo);
-      const payload = await apiFetch<CdcEventsPayload>(
-        `/api/admin/cdc/events?${params.toString()}`,
-      );
-      setCdcEvents(payload.events || []);
-      setCdcOffset(payload.offset);
-      setCdcLastCount((payload.events || []).length);
-    } catch (error) {
-      notify(messageOf(error, "Failed to load CDC events."), "error");
-    } finally {
-      setCdcLoading(false);
-    }
-  };
-
-  const loadReports = async (nextOffset = reportsOffset) => {
-    setReportsLoading(true);
-    try {
-      const params = new URLSearchParams({
-        limit: String(reportsLimit),
-        offset: String(nextOffset),
-      });
-      if (reportsCrawlerName.trim()) params.set("crawler_name", reportsCrawlerName.trim());
-      if (reportsStatus) params.set("status", reportsStatus);
-      if (reportsCreatedFrom) params.set("created_from", reportsCreatedFrom);
-      if (reportsCreatedTo) params.set("created_to", reportsCreatedTo);
-      const payload = await apiFetch<JobReportsPayload>(
-        `/api/admin/reports/daily-crawler?${params.toString()}`,
-      );
-      setReports(payload.reports || []);
-      setReportsOffset(payload.offset);
-      setReportsLastCount((payload.reports || []).length);
-    } catch (error) {
-      notify(messageOf(error, "Failed to load reports."), "error");
-    } finally {
-      setReportsLoading(false);
-    }
-  };
-
-  const loadDailySummary = async () => {
-    setDailySummaryLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (reportsCreatedFrom) params.set("created_from", reportsCreatedFrom);
-      if (reportsCreatedTo) params.set("created_to", reportsCreatedTo);
-      const url = params.toString()
-        ? `/api/admin/reports/daily-summary?${params.toString()}`
-        : "/api/admin/reports/daily-summary";
-      const payload = await apiFetch<DailySummaryPayload>(url);
-      setDailySummary(payload);
-    } catch (error) {
-      notify(messageOf(error, "Failed to load daily summary."), "error");
-    } finally {
-      setDailySummaryLoading(false);
-    }
-  };
-
-  const loadDailyNotification = async () => {
-    setDailyLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (dailyDate) params.set("date", dailyDate);
-      if (dailyIncludeFailed) params.set("include_failed", "1");
-      if (dailyIncludePending) params.set("include_pending", "1");
-      const payload = await apiFetch<DailyNotificationPayload>(
-        `/api/admin/reports/daily-notification?${params.toString()}`,
-      );
-      setDailyPayload(payload);
-    } catch (error) {
-      notify(messageOf(error, "Failed to load daily notification report."), "error");
-      setDailyPayload(null);
-    } finally {
-      setDailyLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!canAccessAdmin) return;
-    void loadOverview();
-    void loadOutboxSummary();
-  }, [canAccessAdmin]);
-
-  useEffect(() => {
-    if (!canAccessAdmin) return;
-    if (tab === "contents") {
-      void loadContents(0);
-    } else if (tab === "recentPublication") {
-      void loadRecentPublicationChanges(0);
-    } else if (tab === "recentCompletion") {
-      void loadRecentCompletionChanges(0);
-    } else if (tab === "missingCompletion") {
-      void loadMissingContents(0);
-    } else if (tab === "missingPublication") {
-      void loadMissingPublicationContents(0);
-    } else if (tab === "opsLog") {
-      void loadContentAuditLogs(0);
-    } else if (tab === "users") {
-      void loadUsers(usersQuery, usersOffset);
-    } else if (tab === "cdcEvents") {
-      void loadCdcEvents(0);
-    } else if (tab === "reports") {
-      void Promise.all([loadReports(0), loadDailySummary()]);
-    } else if (tab === "dailyNotification") {
-      void loadDailyNotification();
-    } else if (tab === "ops") {
-      void loadOutboxSummary();
-    }
-  }, [canAccessAdmin, tab]);
-
-  const runDispatch = async () => {
-    setOpsLoading(true);
-    try {
-      const batchSize = parseOptionalPositiveInt(dispatchBatch);
-      const body = batchSize ? { batch_size: batchSize } : {};
-      await apiFetch("/api/admin/ops/dispatch-email", {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-      notify("Email dispatch started.", "success");
-      await Promise.all([loadOverview(), loadOutboxSummary(), loadReports(0), loadDailySummary()]);
-    } catch (error) {
-      notify(messageOf(error, "Failed to start dispatch job."), "error");
-    } finally {
-      setOpsLoading(false);
-    }
-  };
-
-  const runRefreshAll = async () => {
-    setOpsLoading(true);
-    try {
-      const parsedLimitUsers = parseOptionalPositiveInt(limitUsers);
-      const parsedLimitFollows = parseOptionalPositiveInt(limitFollows);
-      const body: { limit_users?: number; limit_follows?: number; force: boolean } = {
-        force: forceRefresh,
-      };
-      if (parsedLimitUsers) body.limit_users = parsedLimitUsers;
-      if (parsedLimitFollows) body.limit_follows = parsedLimitFollows;
-      await apiFetch("/api/admin/ops/refresh-all", {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-      notify("Refresh-all started.", "success");
-      await Promise.all([
-        loadOverview(),
-        loadOutboxSummary(),
-        loadCdcEvents(0),
-        loadReports(0),
-        loadDailySummary(),
-      ]);
-    } catch (error) {
-      notify(messageOf(error, "Failed to start refresh-all."), "error");
-    } finally {
-      setOpsLoading(false);
-    }
-  };
-
-  const refreshSelectedUser = async () => {
-    if (!selectedUser) return;
-    setDetailActionLoading(true);
-    try {
-      await apiFetch(`/api/admin/users/${selectedUser.id}/refresh`, {
-        method: "POST",
-        body: JSON.stringify({ force: true }),
-      });
-      notify("User refresh completed.", "success");
-      await Promise.all([
-        loadUserFollows(selectedUser.id),
-        loadOverview(),
-        loadCdcEvents(0),
-        loadReports(0),
-        loadDailySummary(),
-      ]);
-    } catch (error) {
-      notify(messageOf(error, "Failed to refresh selected user."), "error");
-    } finally {
-      setDetailActionLoading(false);
-    }
-  };
-
-  const deleteFollow = async (followId: number, title: string | null, tmdbId: number) => {
-    const confirmed = window.confirm(`Delete follow: ${title || `TMDB ${tmdbId}`}?`);
-    if (!confirmed || !selectedUser) return;
-    setDetailActionLoading(true);
-    try {
-      await apiFetch(`/api/admin/follows/${followId}`, { method: "DELETE" });
-      notify("Follow deleted.", "success");
-      await Promise.all([loadUserFollows(selectedUser.id), loadOverview()]);
-    } catch (error) {
-      notify(messageOf(error, "Failed to delete follow."), "error");
-    } finally {
-      setDetailActionLoading(false);
     }
   };
 
@@ -1154,11 +840,14 @@ export const AdminPage = () => {
     }
     setCleanupLoading(true);
     try {
-      await apiFetch("/api/admin/reports/daily-crawler/cleanup", {
-        method: "POST",
-        body: JSON.stringify({ keep_days: keepDays }),
-      });
-      notify("Old reports cleaned up.", "success");
+      const payload = await apiFetch<{ success: boolean; deleted_count: number }>(
+        "/api/admin/reports/daily-crawler/cleanup",
+        {
+          method: "POST",
+          body: JSON.stringify({ keep_days: keepDays }),
+        },
+      );
+      notify(`Old reports cleaned up (${payload.deleted_count}).`, "success");
       await Promise.all([loadReports(0), loadDailySummary()]);
     } catch (error) {
       notify(messageOf(error, "Failed to cleanup reports."), "error");
@@ -1167,7 +856,7 @@ export const AdminPage = () => {
     }
   };
 
-  const copySummary = async () => {
+  const copyDailySummary = async () => {
     try {
       await copyText(dailySummary?.summary_text || "");
       notify("Summary copied.", "success");
@@ -1179,42 +868,51 @@ export const AdminPage = () => {
   const copyDailyNotification = async () => {
     try {
       await copyText(dailyPayload?.text_report || "");
-      notify("Daily report copied.", "success");
+      notify("Report copied.", "success");
     } catch {
       notify("Copy failed.", "error");
     }
   };
 
-  const followBreakdown = useMemo(
-    () => Object.entries(overview?.follow_breakdown || {}),
-    [overview],
-  );
-  const outboxStatus = useMemo(() => Object.entries(overview?.outbox_status || {}), [overview]);
+  const openContentFromList = async (item: ManagedContentItem) => {
+    setTab("contents");
+    setSelectedContent(item);
+    await loadContentLookup(item);
+  };
+
+  useEffect(() => {
+    if (!canAccessAdmin) {
+      return;
+    }
+    if (tab === "contents") {
+      void loadContents(0);
+    } else if (tab === "missingCompletion") {
+      void loadMissingCompletion(0);
+    } else if (tab === "missingPublication") {
+      void loadMissingPublication(0);
+    } else if (tab === "opsLog") {
+      void loadAuditLogs(0);
+    } else if (tab === "cdcEvents") {
+      void loadCdcEvents(0);
+    } else if (tab === "reports") {
+      void Promise.all([loadReports(0), loadDailySummary()]);
+    } else if (tab === "dailyNotification") {
+      void loadDailyNotification();
+    }
+  }, [canAccessAdmin, tab]);
+
   const hasContentPrev = contentOffset > 0;
   const hasContentNext = contentLastCount >= contentLimit;
-  const hasOverridesPrev = overridesOffset > 0;
-  const hasOverridesNext = overridesLastCount >= overridesLimit;
-  const hasRecentPublicationPrev = recentPublicationOffset > 0;
-  const hasRecentPublicationNext = recentPublicationLastCount >= recentPublicationLimit;
-  const hasRecentCompletionPrev = recentCompletionOffset > 0;
-  const hasRecentCompletionNext = recentCompletionLastCount >= recentCompletionLimit;
-  const hasMissingPrev = missingOffset > 0;
-  const hasMissingNext = missingLastCount >= missingLimit;
+  const hasMissingCompletionPrev = missingCompletionOffset > 0;
+  const hasMissingCompletionNext = missingCompletionLastCount >= missingCompletionLimit;
   const hasMissingPublicationPrev = missingPublicationOffset > 0;
   const hasMissingPublicationNext = missingPublicationLastCount >= missingPublicationLimit;
-  const hasContentAuditPrev = contentAuditOffset > 0;
-  const hasContentAuditNext = contentAuditLastCount >= contentAuditLimit;
-  const hasUsersPrev = usersOffset > 0;
-  const hasUsersNext = usersOffset + usersLimit < usersTotal;
+  const hasAuditPrev = auditOffset > 0;
+  const hasAuditNext = auditLastCount >= auditLimit;
   const hasCdcPrev = cdcOffset > 0;
   const hasCdcNext = cdcLastCount >= cdcLimit;
   const hasReportsPrev = reportsOffset > 0;
   const hasReportsNext = reportsLastCount >= reportsLimit;
-  const selectedContentTarget = selectedContent
-    ? `${CONTENT_MEDIA_LABEL[selectedContent.media_type]} / tmdb:${selectedContent.tmdb_id}${
-        selectedContent.media_type === "season" ? ` / season:${selectedContent.season_number}` : ""
-      }`
-    : "-";
   const dailyItems = dailyPayload?.items || dailyPayload?.completed_items || [];
 
   if (!token) {
@@ -1306,20 +1004,6 @@ export const AdminPage = () => {
           </button>
           <button
             type="button"
-            className={`admin-tab-btn ${tab === "recentPublication" ? "active" : ""}`}
-            onClick={() => setTab("recentPublication")}
-          >
-            최근 공개일 변경
-          </button>
-          <button
-            type="button"
-            className={`admin-tab-btn ${tab === "recentCompletion" ? "active" : ""}`}
-            onClick={() => setTab("recentCompletion")}
-          >
-            최근 완결일 변경
-          </button>
-          <button
-            type="button"
             className={`admin-tab-btn ${tab === "missingCompletion" ? "active" : ""}`}
             onClick={() => setTab("missingCompletion")}
           >
@@ -1344,7 +1028,7 @@ export const AdminPage = () => {
             className={`admin-tab-btn ${tab === "cdcEvents" ? "active" : ""}`}
             onClick={() => setTab("cdcEvents")}
           >
-            cdc 이벤트
+            CDC 이벤트
           </button>
           <button
             type="button"
@@ -1362,107 +1046,10 @@ export const AdminPage = () => {
           </button>
         </nav>
 
-        {tab === "overview" ? (
-          <section className="admin-section">
-            <div className="admin-card-grid">
-              <article className="admin-card">
-                <h2>Core Metrics</h2>
-                {overviewLoading ? <p className="admin-muted">Loading...</p> : null}
-                <dl className="admin-kv">
-                  <div>
-                    <dt>Users</dt>
-                    <dd>{overview?.users_total ?? "-"}</dd>
-                  </div>
-                  <div>
-                    <dt>Follows</dt>
-                    <dd>{overview?.follows_total ?? "-"}</dd>
-                  </div>
-                  <div>
-                    <dt>Events (24h)</dt>
-                    <dd>{overview?.change_events_24h ?? "-"}</dd>
-                  </div>
-                  <div>
-                    <dt>Outbox (24h)</dt>
-                    <dd>{overview?.outbox_24h ?? "-"}</dd>
-                  </div>
-                </dl>
-              </article>
-
-              <article className="admin-card">
-                <h2>Follow Breakdown</h2>
-                <ul className="admin-chip-list">
-                  {followBreakdown.map(([key, value]) => (
-                    <li key={key}>
-                      <span>{key}</span>
-                      <strong>{value}</strong>
-                    </li>
-                  ))}
-                </ul>
-                {followBreakdown.length === 0 ? <p className="admin-muted">No data</p> : null}
-              </article>
-
-              <article className="admin-card">
-                <h2>Outbox Status</h2>
-                <ul className="admin-chip-list">
-                  {outboxStatus.map(([key, value]) => (
-                    <li key={key}>
-                      <span>{key}</span>
-                      <strong>{value}</strong>
-                    </li>
-                  ))}
-                </ul>
-                {outboxStatus.length === 0 ? <p className="admin-muted">No data</p> : null}
-              </article>
-            </div>
-
-            <div className="admin-card-grid">
-              <article className="admin-card">
-                <h2>Top Follow Users</h2>
-                <div className="admin-list">
-                  {(overview?.top_users || []).map((item) => (
-                    <div key={item.id} className="admin-list-item">
-                      <div>
-                        <strong>{item.email}</strong>
-                        <p className="admin-muted">user_id: {item.id}</p>
-                      </div>
-                      <span className="admin-pill">{item.follows_count} follows</span>
-                    </div>
-                  ))}
-                </div>
-                {(overview?.top_users || []).length === 0 ? (
-                  <p className="admin-muted">No data</p>
-                ) : null}
-              </article>
-
-              <article className="admin-card">
-                <h2>Timeline</h2>
-                <dl className="admin-kv compact">
-                  <div>
-                    <dt>Newest user</dt>
-                    <dd>{formatDate(overview?.latest_user_created_at)}</dd>
-                  </div>
-                  <div>
-                    <dt>Newest follow</dt>
-                    <dd>{formatDate(overview?.latest_follow_created_at)}</dd>
-                  </div>
-                  <div>
-                    <dt>Oldest pending</dt>
-                    <dd>{formatDate(overview?.oldest_pending_created_at)}</dd>
-                  </div>
-                  <div>
-                    <dt>Admin restriction</dt>
-                    <dd>{overview?.admin_restricted ? "ADMIN_EMAILS enabled" : "not configured"}</dd>
-                  </div>
-                </dl>
-              </article>
-            </div>
-          </section>
-        ) : null}
-
         {tab === "contents" ? (
           <section className="admin-section admin-two-col">
             <article className="admin-card">
-              <h2>Content Search</h2>
+              <h2>콘텐츠 검색</h2>
               <div className="admin-field">
                 <label>Search</label>
                 <input
@@ -1478,9 +1065,9 @@ export const AdminPage = () => {
                   onChange={(event) => setContentMediaType(event.target.value)}
                 >
                   <option value="">All</option>
-                  <option value="movie">movie</option>
-                  <option value="tv">tv</option>
-                  <option value="season">season</option>
+                  <option value="movie">Movie</option>
+                  <option value="tv">TV</option>
+                  <option value="season">Season</option>
                 </select>
               </div>
               <div className="admin-field">
@@ -1490,58 +1077,22 @@ export const AdminPage = () => {
                   onChange={(event) => setContentHasOverride(event.target.value)}
                 >
                   <option value="">All</option>
-                  <option value="true">only with override</option>
-                  <option value="false">only without override</option>
+                  <option value="true">Only with override</option>
+                  <option value="false">Only without override</option>
                 </select>
               </div>
-              <label className="admin-checkbox">
-                <input
-                  type="checkbox"
-                  checked={contentMissingFinalDate}
-                  onChange={(event) => setContentMissingFinalDate(event.target.checked)}
-                />
-                missing final completed date only
-              </label>
-
               <div className="admin-inline-actions">
-                <button
-                  type="button"
-                  className="admin-link-btn"
-                  disabled={contentsLoading}
-                  onClick={() =>
-                    void Promise.all([
-                      loadContents(0),
-                      loadContentOverrides(0),
-                      loadMissingContents(0),
-                      loadContentAuditLogs(0),
-                    ])
-                  }
-                >
+                <button type="button" className="admin-link-btn" onClick={() => void loadContents(0)}>
                   Search
                 </button>
                 <button
                   type="button"
                   className="admin-link-btn secondary"
-                  disabled={contentsLoading}
                   onClick={() => {
                     setContentQ("");
                     setContentMediaType("");
                     setContentHasOverride("");
-                    setContentMissingFinalDate(false);
-                    setContentOffset(0);
-                    setContentLastCount(0);
-                    setContents([]);
-                    setSelectedContent(null);
-                    setContentOverrides([]);
-                    setOverridesOffset(0);
-                    setOverridesLastCount(0);
-                    setMissingContents([]);
-                    setMissingOffset(0);
-                    setMissingLastCount(0);
-                    setContentAuditActionType("");
-                    setContentAuditLogs([]);
-                    setContentAuditOffset(0);
-                    setContentAuditLastCount(0);
+                    void loadContents(0, { q: "", mediaType: "", hasOverride: "" });
                   }}
                 >
                   Reset
@@ -1579,659 +1130,173 @@ export const AdminPage = () => {
                     <div>
                       <strong>{item.title || `TMDB ${item.tmdb_id}`}</strong>
                       <p className="admin-muted">
-                        {CONTENT_MEDIA_LABEL[item.media_type]} / tmdb:{item.tmdb_id}
-                        {item.media_type === "season" ? ` / season:${item.season_number}` : ""}
-                      </p>
-                      <p className="admin-muted">
-                        effective: {item.effective.final_state || "-"} /{" "}
-                        {item.effective.final_completed_at || "-"}
+                        {contentTargetText(item)} / updated: {formatDate(item.updated_at)}
                       </p>
                     </div>
-                    <div className="admin-user-meta">
-                      <span>{formatDate(item.updated_at)}</span>
-                      {item.override ? <span className="admin-pill">override</span> : null}
-                    </div>
+                    {item.override ? <span className="admin-pill">override</span> : null}
                   </button>
                 ))}
                 {contentsLoading ? <p className="admin-muted">Loading...</p> : null}
                 {!contentsLoading && contents.length === 0 ? (
-                  <p className="admin-muted">No content found.</p>
+                  <p className="admin-muted">No contents.</p>
                 ) : null}
               </div>
             </article>
 
-            <div className="admin-stack">
-              <article className="admin-card">
-                <div className="admin-inline-actions spread">
-                  <h2>Content Details</h2>
-                  <button
-                    type="button"
-                    className="admin-link-btn secondary"
-                    disabled={!selectedContent || overrideSaving}
-                    onClick={() => {
-                      if (!selectedContent) return;
+            <article className="admin-card">
+              <div className="admin-inline-actions spread">
+                <h2>콘텐츠 상세</h2>
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={!selectedContent}
+                  onClick={() => {
+                    if (selectedContent) {
                       void loadContentLookup(selectedContent);
-                    }}
-                  >
-                    Refresh
-                  </button>
-                </div>
-                {!selectedContent ? (
-                  <p className="admin-muted">Select content from the search results.</p>
-                ) : (
-                  <>
-                    <div className="admin-detail-header">
-                      <div>
-                        <strong>{selectedContent.title || `TMDB ${selectedContent.tmdb_id}`}</strong>
-                        <p className="admin-muted">{selectedContentTarget}</p>
-                        <p className="admin-muted">cache updated: {formatDate(selectedContent.updated_at)}</p>
-                      </div>
-                      {selectedContent.override ? (
-                        <span className="admin-pill">override active</span>
-                      ) : (
-                        <span className="admin-pill">no override</span>
-                      )}
+                    }
+                  }}
+                >
+                  Refresh
+                </button>
+              </div>
+              {!selectedContent ? (
+                <p className="admin-muted">검색 결과에서 콘텐츠를 선택하세요.</p>
+              ) : (
+                <div className="admin-stack">
+                  <div className="admin-detail-header">
+                    <div>
+                      <h2>{selectedContent.title || `TMDB ${selectedContent.tmdb_id}`}</h2>
+                      <p className="admin-muted">{contentTargetText(selectedContent)}</p>
                     </div>
+                    {selectedContent.override ? (
+                      <span className="admin-pill">override active</span>
+                    ) : (
+                      <span className="admin-pill">no override</span>
+                    )}
+                  </div>
 
-                    <dl className="admin-kv compact">
-                      <div>
-                        <dt>Base status</dt>
-                        <dd>{selectedContent.base.status_raw || "-"}</dd>
-                      </div>
-                      <div>
-                        <dt>Effective status</dt>
-                        <dd>{selectedContent.effective.status_raw || "-"}</dd>
-                      </div>
-                      <div>
-                        <dt>Base final</dt>
-                        <dd>{selectedContent.base.final_state || "-"}</dd>
-                      </div>
-                      <div>
-                        <dt>Effective final</dt>
-                        <dd>{selectedContent.effective.final_state || "-"}</dd>
-                      </div>
-                      <div>
-                        <dt>Base final date</dt>
-                        <dd>{selectedContent.base.final_completed_at || "-"}</dd>
-                      </div>
-                      <div>
-                        <dt>Effective final date</dt>
-                        <dd>{selectedContent.effective.final_completed_at || "-"}</dd>
-                      </div>
-                      <div>
-                        <dt>Base release date</dt>
-                        <dd>{selectedContent.base.release_date || "-"}</dd>
-                      </div>
-                      <div>
-                        <dt>Effective release date</dt>
-                        <dd>{selectedContent.effective.release_date || "-"}</dd>
-                      </div>
-                      <div>
-                        <dt>Base next air date</dt>
-                        <dd>{selectedContent.base.next_air_date || "-"}</dd>
-                      </div>
-                      <div>
-                        <dt>Effective next air date</dt>
-                        <dd>{selectedContent.effective.next_air_date || "-"}</dd>
-                      </div>
-                    </dl>
+                  <dl className="admin-kv compact">
+                    <div>
+                      <dt>base final_state</dt>
+                      <dd>{selectedContent.base.final_state || "-"}</dd>
+                    </div>
+                    <div>
+                      <dt>base final_completed_at</dt>
+                      <dd>{selectedContent.base.final_completed_at || "-"}</dd>
+                    </div>
+                    <div>
+                      <dt>effective final_state</dt>
+                      <dd>{selectedContent.effective.final_state || "-"}</dd>
+                    </div>
+                    <div>
+                      <dt>effective final_completed_at</dt>
+                      <dd>{selectedContent.effective.final_completed_at || "-"}</dd>
+                    </div>
+                    <div>
+                      <dt>effective release_date</dt>
+                      <dd>{selectedContent.effective.release_date || "-"}</dd>
+                    </div>
+                    <div>
+                      <dt>effective next_air_date</dt>
+                      <dd>{selectedContent.effective.next_air_date || "-"}</dd>
+                    </div>
+                    <div>
+                      <dt>effective status_raw</dt>
+                      <dd>{selectedContent.effective.status_raw || "-"}</dd>
+                    </div>
+                    <div>
+                      <dt>updated_at</dt>
+                      <dd>{formatDate(selectedContent.updated_at)}</dd>
+                    </div>
+                  </dl>
 
-                    <hr className="admin-divider" />
+                  <hr className="admin-divider" />
 
-                    <h3>Override Editor</h3>
+                  <h3>Override 편집</h3>
+                  <div className="admin-field">
+                    <label>override status_raw</label>
+                    <input
+                      value={overrideStatusRaw}
+                      onChange={(event) => setOverrideStatusRaw(event.target.value)}
+                    />
+                  </div>
+                  <div className="admin-field">
+                    <label>override final_state</label>
+                    <input
+                      value={overrideFinalState}
+                      onChange={(event) => setOverrideFinalState(event.target.value)}
+                    />
+                  </div>
+                  <div className="admin-form-grid">
                     <div className="admin-field">
-                      <label>override status_raw</label>
-                      <input
-                        value={overrideStatusRaw}
-                        onChange={(event) => setOverrideStatusRaw(event.target.value)}
-                        placeholder="Released, Ended, Returning Series..."
-                      />
-                    </div>
-                    <div className="admin-field">
-                      <label>override final_state</label>
-                      <input
-                        value={overrideFinalState}
-                        onChange={(event) => setOverrideFinalState(event.target.value)}
-                        placeholder="Released, Ended, Canceled, binge_ready..."
-                      />
-                    </div>
-                    <div className="admin-form-grid">
-                      <div className="admin-field">
-                        <label>override release_date</label>
-                        <input
-                          type="date"
-                          value={overrideReleaseDate}
-                          onChange={(event) => setOverrideReleaseDate(event.target.value)}
-                        />
-                      </div>
-                      <div className="admin-field">
-                        <label>override next_air_date</label>
-                        <input
-                          type="date"
-                          value={overrideNextAirDate}
-                          onChange={(event) => setOverrideNextAirDate(event.target.value)}
-                        />
-                      </div>
-                    </div>
-                    <div className="admin-field">
-                      <label>override final_completed_at</label>
+                      <label>override release_date</label>
                       <input
                         type="date"
-                        value={overrideFinalCompletedAt}
-                        onChange={(event) => setOverrideFinalCompletedAt(event.target.value)}
+                        value={overrideReleaseDate}
+                        onChange={(event) => setOverrideReleaseDate(event.target.value)}
                       />
                     </div>
                     <div className="admin-field">
-                      <label>reason</label>
+                      <label>override next_air_date</label>
                       <input
-                        value={overrideReason}
-                        onChange={(event) => setOverrideReason(event.target.value)}
-                        placeholder="optional"
+                        type="date"
+                        value={overrideNextAirDate}
+                        onChange={(event) => setOverrideNextAirDate(event.target.value)}
                       />
                     </div>
-                    <div className="admin-inline-actions">
-                      <button
-                        type="button"
-                        className="admin-link-btn"
-                        disabled={overrideSaving}
-                        onClick={() => void saveContentOverride()}
-                      >
-                        Save Override
-                      </button>
-                      <button
-                        type="button"
-                        className="admin-link-btn danger"
-                        disabled={overrideSaving || !selectedContent.override}
-                        onClick={() => void deleteContentOverride()}
-                      >
-                        Delete Override
-                      </button>
-                      <button
-                        type="button"
-                        className="admin-link-btn secondary"
-                        disabled={overrideSaving}
-                        onClick={() => {
-                          setOverrideStatusRaw(selectedContent.override?.status_raw || "");
-                          setOverrideReleaseDate(toDateInput(selectedContent.override?.release_date));
-                          setOverrideNextAirDate(toDateInput(selectedContent.override?.next_air_date));
-                          setOverrideFinalState(selectedContent.override?.final_state || "");
-                          setOverrideFinalCompletedAt(
-                            toDateInput(selectedContent.override?.final_completed_at),
-                          );
-                          setOverrideReason(selectedContent.override?.reason || "");
-                        }}
-                      >
-                        Reset Form
-                      </button>
-                    </div>
-                  </>
-                )}
-              </article>
-
-              <article className="admin-card">
-                <div className="admin-inline-actions spread">
-                  <h2>Missing Final Date</h2>
-                  <button
-                    type="button"
-                    className="admin-link-btn secondary"
-                    disabled={missingLoading}
-                    onClick={() => void loadMissingContents(0)}
-                  >
-                    Refresh
-                  </button>
+                  </div>
+                  <div className="admin-field">
+                    <label>override final_completed_at</label>
+                    <input
+                      type="date"
+                      value={overrideFinalCompletedAt}
+                      onChange={(event) => setOverrideFinalCompletedAt(event.target.value)}
+                    />
+                  </div>
+                  <div className="admin-field">
+                    <label>reason</label>
+                    <input
+                      value={overrideReason}
+                      onChange={(event) => setOverrideReason(event.target.value)}
+                      placeholder="optional"
+                    />
+                  </div>
+                  <div className="admin-inline-actions">
+                    <button
+                      type="button"
+                      className="admin-link-btn"
+                      disabled={overrideSaving}
+                      onClick={() => void saveContentOverride()}
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      className="admin-link-btn danger"
+                      disabled={overrideSaving || !selectedContent.override}
+                      onClick={() => void deleteContentOverride()}
+                    >
+                      Delete Override
+                    </button>
+                    <button
+                      type="button"
+                      className="admin-link-btn secondary"
+                      disabled={overrideSaving}
+                      onClick={() => {
+                        const current = selectedContent.override;
+                        setOverrideStatusRaw(current?.status_raw || "");
+                        setOverrideReleaseDate(toDateInput(current?.release_date));
+                        setOverrideNextAirDate(toDateInput(current?.next_air_date));
+                        setOverrideFinalState(current?.final_state || "");
+                        setOverrideFinalCompletedAt(toDateInput(current?.final_completed_at));
+                        setOverrideReason(current?.reason || "");
+                      }}
+                    >
+                      Reset Form
+                    </button>
+                  </div>
                 </div>
-                <div className="admin-list compact">
-                  {missingContents.map((item) => (
-                    <div key={item.key} className="admin-list-item top">
-                      <div>
-                        <strong>{item.title || `TMDB ${item.tmdb_id}`}</strong>
-                        <p className="admin-muted">
-                          {CONTENT_MEDIA_LABEL[item.media_type]} / tmdb:{item.tmdb_id}
-                          {item.media_type === "season" ? ` / season:${item.season_number}` : ""}
-                        </p>
-                        <p className="admin-muted">
-                          effective final: {item.effective.final_state || "-"} / missing date
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        className="admin-link-btn secondary"
-                        onClick={() => void loadContentLookup(item)}
-                      >
-                        Open
-                      </button>
-                    </div>
-                  ))}
-                  {missingLoading ? <p className="admin-muted">Loading...</p> : null}
-                  {!missingLoading && missingContents.length === 0 ? (
-                    <p className="admin-muted">No missing items.</p>
-                  ) : null}
-                </div>
-                <div className="admin-inline-actions spread">
-                  <button
-                    type="button"
-                    className="admin-link-btn secondary"
-                    disabled={!hasMissingPrev || missingLoading}
-                    onClick={() => void loadMissingContents(Math.max(0, missingOffset - missingLimit))}
-                  >
-                    Prev
-                  </button>
-                  <span className="admin-muted">offset: {missingOffset}</span>
-                  <button
-                    type="button"
-                    className="admin-link-btn secondary"
-                    disabled={!hasMissingNext || missingLoading}
-                    onClick={() => void loadMissingContents(missingOffset + missingLimit)}
-                  >
-                    Next
-                  </button>
-                </div>
-              </article>
-
-              <article className="admin-card">
-                <div className="admin-inline-actions spread">
-                  <h2>Override History</h2>
-                  <button
-                    type="button"
-                    className="admin-link-btn secondary"
-                    disabled={overridesLoading}
-                    onClick={() => void loadContentOverrides(0)}
-                  >
-                    Refresh
-                  </button>
-                </div>
-                <div className="admin-list compact">
-                  {contentOverrides.map((entry) => (
-                    <div key={`${entry.media_type}-${entry.tmdb_id}-${entry.season_number}`} className="admin-list-item top">
-                      <div>
-                        <strong>{entry.title || `TMDB ${entry.tmdb_id}`}</strong>
-                        <p className="admin-muted">
-                          {CONTENT_MEDIA_LABEL[entry.media_type]} / tmdb:{entry.tmdb_id}
-                          {entry.media_type === "season" ? ` / season:${entry.season_number}` : ""}
-                        </p>
-                        <p className="admin-muted">
-                          override final: {entry.override?.final_state || "-"} /{" "}
-                          {entry.override?.final_completed_at || "-"}
-                        </p>
-                        <p className="admin-muted">
-                          reason: {entry.override?.reason || "-"} / by: {entry.override?.admin_email || "-"}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        className="admin-link-btn secondary"
-                        onClick={() =>
-                          void loadContentLookup({
-                            media_type: entry.media_type,
-                            tmdb_id: entry.tmdb_id,
-                            season_number: entry.season_number,
-                          })
-                        }
-                      >
-                        Open
-                      </button>
-                    </div>
-                  ))}
-                  {overridesLoading ? <p className="admin-muted">Loading...</p> : null}
-                  {!overridesLoading && contentOverrides.length === 0 ? (
-                    <p className="admin-muted">No override history.</p>
-                  ) : null}
-                </div>
-                <div className="admin-inline-actions spread">
-                  <button
-                    type="button"
-                    className="admin-link-btn secondary"
-                    disabled={!hasOverridesPrev || overridesLoading}
-                    onClick={() =>
-                      void loadContentOverrides(Math.max(0, overridesOffset - overridesLimit))
-                    }
-                  >
-                    Prev
-                  </button>
-                  <span className="admin-muted">offset: {overridesOffset}</span>
-                  <button
-                    type="button"
-                    className="admin-link-btn secondary"
-                    disabled={!hasOverridesNext || overridesLoading}
-                    onClick={() => void loadContentOverrides(overridesOffset + overridesLimit)}
-                  >
-                    Next
-                  </button>
-                </div>
-              </article>
-
-              <article className="admin-card">
-                <div className="admin-inline-actions spread">
-                  <h2>Content Audit Logs</h2>
-                  <button
-                    type="button"
-                    className="admin-link-btn secondary"
-                    disabled={contentAuditLoading}
-                    onClick={() => void loadContentAuditLogs(0)}
-                  >
-                    Refresh
-                  </button>
-                </div>
-                <div className="admin-field">
-                  <label>Action Type</label>
-                  <select
-                    value={contentAuditActionType}
-                    onChange={(event) => setContentAuditActionType(event.target.value)}
-                  >
-                    <option value="">All</option>
-                    <option value="OVERRIDE_UPSERT">OVERRIDE_UPSERT</option>
-                    <option value="OVERRIDE_DELETE">OVERRIDE_DELETE</option>
-                  </select>
-                </div>
-                <div className="admin-list compact">
-                  {contentAuditLogs.map((log) => (
-                    <div key={log.id} className="admin-list-item top">
-                      <div>
-                        <strong>{log.title || `TMDB ${log.tmdb_id}`}</strong>
-                        <p className="admin-muted">
-                          {log.action_type} / {CONTENT_MEDIA_LABEL[log.media_type]} / tmdb:{log.tmdb_id}
-                          {log.media_type === "season" ? ` / season:${log.season_number}` : ""}
-                        </p>
-                        <p className="admin-muted">
-                          effective final: {log.effective_final_state || "-"} /{" "}
-                          {log.effective_final_completed_at || "-"}
-                        </p>
-                        <p className="admin-muted">
-                          by: {log.admin_email || "-"} / reason: {log.reason || "-"}
-                        </p>
-                      </div>
-                      <span className="admin-muted">{formatDate(log.created_at)}</span>
-                    </div>
-                  ))}
-                  {contentAuditLoading ? <p className="admin-muted">Loading...</p> : null}
-                  {!contentAuditLoading && contentAuditLogs.length === 0 ? (
-                    <p className="admin-muted">No audit logs.</p>
-                  ) : null}
-                </div>
-                <div className="admin-inline-actions spread">
-                  <button
-                    type="button"
-                    className="admin-link-btn secondary"
-                    disabled={!hasContentAuditPrev || contentAuditLoading}
-                    onClick={() =>
-                      void loadContentAuditLogs(Math.max(0, contentAuditOffset - contentAuditLimit))
-                    }
-                  >
-                    Prev
-                  </button>
-                  <span className="admin-muted">offset: {contentAuditOffset}</span>
-                  <button
-                    type="button"
-                    className="admin-link-btn secondary"
-                    disabled={!hasContentAuditNext || contentAuditLoading}
-                    onClick={() => void loadContentAuditLogs(contentAuditOffset + contentAuditLimit)}
-                  >
-                    Next
-                  </button>
-                </div>
-              </article>
-            </div>
-          </section>
-        ) : null}
-
-        {tab === "recentPublication" ? (
-          <section className="admin-section">
-            <article className="admin-card">
-              <div className="admin-inline-actions spread">
-                <h2>최근 공개일 변경</h2>
-                <button
-                  type="button"
-                  className="admin-link-btn secondary"
-                  disabled={recentPublicationLoading}
-                  onClick={() => void loadRecentPublicationChanges(0)}
-                >
-                  Refresh
-                </button>
-              </div>
-
-              <div className="admin-form-grid">
-                <div className="admin-field">
-                  <label>Search</label>
-                  <input
-                    value={contentQ}
-                    onChange={(event) => setContentQ(event.target.value)}
-                    placeholder="title or tmdb id"
-                  />
-                </div>
-                <div className="admin-field">
-                  <label>Media Type</label>
-                  <select
-                    value={contentMediaType}
-                    onChange={(event) => setContentMediaType(event.target.value)}
-                  >
-                    <option value="">All</option>
-                    <option value="movie">movie</option>
-                    <option value="tv">tv</option>
-                    <option value="season">season</option>
-                  </select>
-                </div>
-              </div>
-              <div className="admin-inline-actions">
-                <button
-                  type="button"
-                  className="admin-link-btn"
-                  disabled={recentPublicationLoading}
-                  onClick={() => void loadRecentPublicationChanges(0)}
-                >
-                  Search
-                </button>
-                <button
-                  type="button"
-                  className="admin-link-btn secondary"
-                  disabled={recentPublicationLoading}
-                  onClick={() => {
-                    setContentQ("");
-                    setContentMediaType("");
-                    setRecentPublicationOffset(0);
-                    setRecentPublicationLastCount(0);
-                    setRecentPublicationChanges([]);
-                  }}
-                >
-                  Reset
-                </button>
-              </div>
-
-              <div className="admin-inline-actions spread">
-                <button
-                  type="button"
-                  className="admin-link-btn secondary"
-                  disabled={!hasRecentPublicationPrev || recentPublicationLoading}
-                  onClick={() =>
-                    void loadRecentPublicationChanges(
-                      Math.max(0, recentPublicationOffset - recentPublicationLimit),
-                    )
-                  }
-                >
-                  Prev
-                </button>
-                <span className="admin-muted">offset: {recentPublicationOffset}</span>
-                <button
-                  type="button"
-                  className="admin-link-btn secondary"
-                  disabled={!hasRecentPublicationNext || recentPublicationLoading}
-                  onClick={() => void loadRecentPublicationChanges(recentPublicationOffset + recentPublicationLimit)}
-                >
-                  Next
-                </button>
-              </div>
-
-              <div className="admin-list compact">
-                {recentPublicationChanges.map((item) => {
-                  const target = recentItemToLookupTarget(item);
-                  const sourceLabel = item.source ? CHANGE_SOURCE_LABEL[item.source] : "-";
-                  return (
-                    <div key={item.id} className="admin-list-item top">
-                      <div>
-                        <strong>{item.title || `TMDB ${item.tmdb_id || "-"}`}</strong>
-                        <p className="admin-muted">
-                          {sourceLabel} / tmdb:{item.tmdb_id || "-"}
-                          {item.source === "tv_season" ? ` / season:${item.season_number ?? "-"}` : ""}
-                        </p>
-                        <p className="admin-muted">
-                          {item.field || "date"}: {formatChangeValue(item.from_value)} -&gt;{" "}
-                          {formatChangeValue(item.to_value)}
-                        </p>
-                        <p className="admin-muted">
-                          {item.event_type} / {formatDate(item.created_at)}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        className="admin-link-btn secondary"
-                        disabled={!target}
-                        onClick={() => {
-                          if (!target) return;
-                          void loadContentLookup(target);
-                        }}
-                      >
-                        Open
-                      </button>
-                    </div>
-                  );
-                })}
-                {recentPublicationLoading ? <p className="admin-muted">Loading...</p> : null}
-                {!recentPublicationLoading && recentPublicationChanges.length === 0 ? (
-                  <p className="admin-muted">No recent publication changes.</p>
-                ) : null}
-              </div>
-            </article>
-          </section>
-        ) : null}
-
-        {tab === "recentCompletion" ? (
-          <section className="admin-section">
-            <article className="admin-card">
-              <div className="admin-inline-actions spread">
-                <h2>최근 완결일 변경</h2>
-                <button
-                  type="button"
-                  className="admin-link-btn secondary"
-                  disabled={recentCompletionLoading}
-                  onClick={() => void loadRecentCompletionChanges(0)}
-                >
-                  Refresh
-                </button>
-              </div>
-
-              <div className="admin-form-grid">
-                <div className="admin-field">
-                  <label>Search</label>
-                  <input
-                    value={contentQ}
-                    onChange={(event) => setContentQ(event.target.value)}
-                    placeholder="title or tmdb id"
-                  />
-                </div>
-                <div className="admin-field">
-                  <label>Media Type</label>
-                  <select
-                    value={contentMediaType}
-                    onChange={(event) => setContentMediaType(event.target.value)}
-                  >
-                    <option value="">All</option>
-                    <option value="movie">movie</option>
-                    <option value="tv">tv</option>
-                    <option value="season">season</option>
-                  </select>
-                </div>
-              </div>
-              <div className="admin-inline-actions">
-                <button
-                  type="button"
-                  className="admin-link-btn"
-                  disabled={recentCompletionLoading}
-                  onClick={() => void loadRecentCompletionChanges(0)}
-                >
-                  Search
-                </button>
-                <button
-                  type="button"
-                  className="admin-link-btn secondary"
-                  disabled={recentCompletionLoading}
-                  onClick={() => {
-                    setContentQ("");
-                    setContentMediaType("");
-                    setRecentCompletionOffset(0);
-                    setRecentCompletionLastCount(0);
-                    setRecentCompletionChanges([]);
-                  }}
-                >
-                  Reset
-                </button>
-              </div>
-
-              <div className="admin-inline-actions spread">
-                <button
-                  type="button"
-                  className="admin-link-btn secondary"
-                  disabled={!hasRecentCompletionPrev || recentCompletionLoading}
-                  onClick={() =>
-                    void loadRecentCompletionChanges(
-                      Math.max(0, recentCompletionOffset - recentCompletionLimit),
-                    )
-                  }
-                >
-                  Prev
-                </button>
-                <span className="admin-muted">offset: {recentCompletionOffset}</span>
-                <button
-                  type="button"
-                  className="admin-link-btn secondary"
-                  disabled={!hasRecentCompletionNext || recentCompletionLoading}
-                  onClick={() => void loadRecentCompletionChanges(recentCompletionOffset + recentCompletionLimit)}
-                >
-                  Next
-                </button>
-              </div>
-
-              <div className="admin-list compact">
-                {recentCompletionChanges.map((item) => {
-                  const target = recentItemToLookupTarget(item);
-                  const sourceLabel = item.source ? CHANGE_SOURCE_LABEL[item.source] : "-";
-                  const lastEpisodeAirDate = formatChangeValue(
-                    item.event_payload?.["last_episode_air_date"],
-                  );
-                  return (
-                    <div key={item.id} className="admin-list-item top">
-                      <div>
-                        <strong>{item.title || `TMDB ${item.tmdb_id || "-"}`}</strong>
-                        <p className="admin-muted">
-                          {sourceLabel} / tmdb:{item.tmdb_id || "-"}
-                          {item.source === "tv_season" ? ` / season:${item.season_number ?? "-"}` : ""}
-                        </p>
-                        <p className="admin-muted">
-                          {item.event_type}: {formatChangeValue(item.from_value)} -&gt;{" "}
-                          {formatChangeValue(item.to_value)}
-                        </p>
-                        {item.event_type === "season_binge_ready" ? (
-                          <p className="admin-muted">last_episode_air_date: {lastEpisodeAirDate}</p>
-                        ) : null}
-                        <p className="admin-muted">{formatDate(item.created_at)}</p>
-                      </div>
-                      <button
-                        type="button"
-                        className="admin-link-btn secondary"
-                        disabled={!target}
-                        onClick={() => {
-                          if (!target) return;
-                          void loadContentLookup(target);
-                        }}
-                      >
-                        Open
-                      </button>
-                    </div>
-                  );
-                })}
-                {recentCompletionLoading ? <p className="admin-muted">Loading...</p> : null}
-                {!recentCompletionLoading && recentCompletionChanges.length === 0 ? (
-                  <p className="admin-muted">No recent completion changes.</p>
-                ) : null}
-              </div>
+              )}
             </article>
           </section>
         ) : null}
@@ -2244,8 +1309,8 @@ export const AdminPage = () => {
                 <button
                   type="button"
                   className="admin-link-btn secondary"
-                  disabled={missingLoading}
-                  onClick={() => void loadMissingContents(0)}
+                  disabled={missingCompletionLoading}
+                  onClick={() => void loadMissingCompletion(0)}
                 >
                   Refresh
                 </button>
@@ -2254,21 +1319,21 @@ export const AdminPage = () => {
                 <div className="admin-field">
                   <label>Search</label>
                   <input
-                    value={contentQ}
-                    onChange={(event) => setContentQ(event.target.value)}
+                    value={missingCompletionQ}
+                    onChange={(event) => setMissingCompletionQ(event.target.value)}
                     placeholder="title or tmdb id"
                   />
                 </div>
                 <div className="admin-field">
                   <label>Media Type</label>
                   <select
-                    value={contentMediaType}
-                    onChange={(event) => setContentMediaType(event.target.value)}
+                    value={missingCompletionMediaType}
+                    onChange={(event) => setMissingCompletionMediaType(event.target.value)}
                   >
                     <option value="">All</option>
-                    <option value="movie">movie</option>
-                    <option value="tv">tv</option>
-                    <option value="season">season</option>
+                    <option value="movie">Movie</option>
+                    <option value="tv">TV</option>
+                    <option value="season">Season</option>
                   </select>
                 </div>
               </div>
@@ -2276,50 +1341,44 @@ export const AdminPage = () => {
                 <button
                   type="button"
                   className="admin-link-btn"
-                  disabled={missingLoading}
-                  onClick={() => void loadMissingContents(0)}
+                  onClick={() => void loadMissingCompletion(0)}
                 >
                   Search
                 </button>
                 <button
                   type="button"
                   className="admin-link-btn secondary"
-                  disabled={missingLoading}
                   onClick={() => {
-                    setContentQ("");
-                    setContentMediaType("");
-                    setMissingOffset(0);
-                    setMissingLastCount(0);
-                    setMissingContents([]);
+                    setMissingCompletionQ("");
+                    setMissingCompletionMediaType("");
+                    void loadMissingCompletion(0, { q: "", mediaType: "" });
                   }}
                 >
                   Reset
                 </button>
               </div>
-              <div className="admin-list compact">
-                {missingContents.map((item) => (
+              <div className="admin-list">
+                {missingCompletionItems.map((item) => (
                   <div key={item.key} className="admin-list-item top">
                     <div>
                       <strong>{item.title || `TMDB ${item.tmdb_id}`}</strong>
+                      <p className="admin-muted">{contentTargetText(item)}</p>
                       <p className="admin-muted">
-                        {CONTENT_MEDIA_LABEL[item.media_type]} / tmdb:{item.tmdb_id}
-                        {item.media_type === "season" ? ` / season:${item.season_number}` : ""}
-                      </p>
-                      <p className="admin-muted">
-                        effective final: {item.effective.final_state || "-"} / missing date
+                        effective final: {item.effective.final_state || "-"} / completed:{" "}
+                        {item.effective.final_completed_at || "-"}
                       </p>
                     </div>
                     <button
                       type="button"
                       className="admin-link-btn secondary"
-                      onClick={() => void loadContentLookup(item)}
+                      onClick={() => void openContentFromList(item)}
                     >
                       Open
                     </button>
                   </div>
                 ))}
-                {missingLoading ? <p className="admin-muted">Loading...</p> : null}
-                {!missingLoading && missingContents.length === 0 ? (
+                {missingCompletionLoading ? <p className="admin-muted">Loading...</p> : null}
+                {!missingCompletionLoading && missingCompletionItems.length === 0 ? (
                   <p className="admin-muted">No missing items.</p>
                 ) : null}
               </div>
@@ -2327,17 +1386,21 @@ export const AdminPage = () => {
                 <button
                   type="button"
                   className="admin-link-btn secondary"
-                  disabled={!hasMissingPrev || missingLoading}
-                  onClick={() => void loadMissingContents(Math.max(0, missingOffset - missingLimit))}
+                  disabled={!hasMissingCompletionPrev || missingCompletionLoading}
+                  onClick={() =>
+                    void loadMissingCompletion(
+                      Math.max(0, missingCompletionOffset - missingCompletionLimit),
+                    )
+                  }
                 >
                   Prev
                 </button>
-                <span className="admin-muted">offset: {missingOffset}</span>
+                <span className="admin-muted">offset: {missingCompletionOffset}</span>
                 <button
                   type="button"
                   className="admin-link-btn secondary"
-                  disabled={!hasMissingNext || missingLoading}
-                  onClick={() => void loadMissingContents(missingOffset + missingLimit)}
+                  disabled={!hasMissingCompletionNext || missingCompletionLoading}
+                  onClick={() => void loadMissingCompletion(missingCompletionOffset + missingCompletionLimit)}
                 >
                   Next
                 </button>
@@ -2355,7 +1418,7 @@ export const AdminPage = () => {
                   type="button"
                   className="admin-link-btn secondary"
                   disabled={missingPublicationLoading}
-                  onClick={() => void loadMissingPublicationContents(0)}
+                  onClick={() => void loadMissingPublication(0)}
                 >
                   Refresh
                 </button>
@@ -2364,21 +1427,21 @@ export const AdminPage = () => {
                 <div className="admin-field">
                   <label>Search</label>
                   <input
-                    value={contentQ}
-                    onChange={(event) => setContentQ(event.target.value)}
+                    value={missingPublicationQ}
+                    onChange={(event) => setMissingPublicationQ(event.target.value)}
                     placeholder="title or tmdb id"
                   />
                 </div>
                 <div className="admin-field">
                   <label>Media Type</label>
                   <select
-                    value={contentMediaType}
-                    onChange={(event) => setContentMediaType(event.target.value)}
+                    value={missingPublicationMediaType}
+                    onChange={(event) => setMissingPublicationMediaType(event.target.value)}
                   >
                     <option value="">All</option>
-                    <option value="movie">movie</option>
-                    <option value="tv">tv</option>
-                    <option value="season">season</option>
+                    <option value="movie">Movie</option>
+                    <option value="tv">TV</option>
+                    <option value="season">Season</option>
                   </select>
                 </div>
               </div>
@@ -2386,51 +1449,44 @@ export const AdminPage = () => {
                 <button
                   type="button"
                   className="admin-link-btn"
-                  disabled={missingPublicationLoading}
-                  onClick={() => void loadMissingPublicationContents(0)}
+                  onClick={() => void loadMissingPublication(0)}
                 >
                   Search
                 </button>
                 <button
                   type="button"
                   className="admin-link-btn secondary"
-                  disabled={missingPublicationLoading}
                   onClick={() => {
-                    setContentQ("");
-                    setContentMediaType("");
-                    setMissingPublicationOffset(0);
-                    setMissingPublicationLastCount(0);
-                    setMissingPublicationContents([]);
+                    setMissingPublicationQ("");
+                    setMissingPublicationMediaType("");
+                    void loadMissingPublication(0, { q: "", mediaType: "" });
                   }}
                 >
                   Reset
                 </button>
               </div>
-              <div className="admin-list compact">
-                {missingPublicationContents.map((item) => (
+              <div className="admin-list">
+                {missingPublicationItems.map((item) => (
                   <div key={item.key} className="admin-list-item top">
                     <div>
                       <strong>{item.title || `TMDB ${item.tmdb_id}`}</strong>
+                      <p className="admin-muted">{contentTargetText(item)}</p>
                       <p className="admin-muted">
-                        {CONTENT_MEDIA_LABEL[item.media_type]} / tmdb:{item.tmdb_id}
-                        {item.media_type === "season" ? ` / season:${item.season_number}` : ""}
-                      </p>
-                      <p className="admin-muted">
-                        effective release: {item.effective.release_date || "-"} / next air:{" "}
+                        effective release: {item.effective.release_date || "-"} / next_air:{" "}
                         {item.effective.next_air_date || "-"}
                       </p>
                     </div>
                     <button
                       type="button"
                       className="admin-link-btn secondary"
-                      onClick={() => void loadContentLookup(item)}
+                      onClick={() => void openContentFromList(item)}
                     >
                       Open
                     </button>
                   </div>
                 ))}
                 {missingPublicationLoading ? <p className="admin-muted">Loading...</p> : null}
-                {!missingPublicationLoading && missingPublicationContents.length === 0 ? (
+                {!missingPublicationLoading && missingPublicationItems.length === 0 ? (
                   <p className="admin-muted">No missing items.</p>
                 ) : null}
               </div>
@@ -2440,7 +1496,7 @@ export const AdminPage = () => {
                   className="admin-link-btn secondary"
                   disabled={!hasMissingPublicationPrev || missingPublicationLoading}
                   onClick={() =>
-                    void loadMissingPublicationContents(
+                    void loadMissingPublication(
                       Math.max(0, missingPublicationOffset - missingPublicationLimit),
                     )
                   }
@@ -2453,9 +1509,7 @@ export const AdminPage = () => {
                   className="admin-link-btn secondary"
                   disabled={!hasMissingPublicationNext || missingPublicationLoading}
                   onClick={() =>
-                    void loadMissingPublicationContents(
-                      missingPublicationOffset + missingPublicationLimit,
-                    )
+                    void loadMissingPublication(missingPublicationOffset + missingPublicationLimit)
                   }
                 >
                   Next
@@ -2466,247 +1520,106 @@ export const AdminPage = () => {
         ) : null}
 
         {tab === "opsLog" ? (
-          <section className="admin-section">
+          <section className="admin-section admin-two-col">
             <article className="admin-card">
-              <div className="admin-inline-actions spread">
-                <h2>운영로그</h2>
-                <button
-                  type="button"
-                  className="admin-link-btn secondary"
-                  disabled={contentAuditLoading}
-                  onClick={() => void loadContentAuditLogs(0)}
-                >
-                  Refresh
-                </button>
+              <h2>운영로그 필터</h2>
+              <div className="admin-field">
+                <label>Search</label>
+                <input
+                  value={auditQ}
+                  onChange={(event) => setAuditQ(event.target.value)}
+                  placeholder="title or tmdb id"
+                />
               </div>
-              <div className="admin-form-grid">
-                <div className="admin-field">
-                  <label>Search</label>
-                  <input
-                    value={contentQ}
-                    onChange={(event) => setContentQ(event.target.value)}
-                    placeholder="title or tmdb id"
-                  />
-                </div>
-                <div className="admin-field">
-                  <label>Action Type</label>
-                  <select
-                    value={contentAuditActionType}
-                    onChange={(event) => setContentAuditActionType(event.target.value)}
-                  >
-                    <option value="">All</option>
-                    <option value="OVERRIDE_UPSERT">OVERRIDE_UPSERT</option>
-                    <option value="OVERRIDE_DELETE">OVERRIDE_DELETE</option>
-                  </select>
-                </div>
+              <div className="admin-field">
+                <label>Action Type</label>
+                <select
+                  value={auditActionType}
+                  onChange={(event) => setAuditActionType(event.target.value)}
+                >
+                  <option value="">All</option>
+                  <option value="OVERRIDE_UPSERT">OVERRIDE_UPSERT</option>
+                  <option value="OVERRIDE_DELETE">OVERRIDE_DELETE</option>
+                </select>
+              </div>
+              <div className="admin-field">
+                <label>Media Type</label>
+                <select
+                  value={auditMediaType}
+                  onChange={(event) => setAuditMediaType(event.target.value)}
+                >
+                  <option value="">All</option>
+                  <option value="movie">Movie</option>
+                  <option value="tv">TV</option>
+                  <option value="season">Season</option>
+                </select>
               </div>
               <div className="admin-inline-actions">
-                <button
-                  type="button"
-                  className="admin-link-btn"
-                  disabled={contentAuditLoading}
-                  onClick={() => void loadContentAuditLogs(0)}
-                >
+                <button type="button" className="admin-link-btn" onClick={() => void loadAuditLogs(0)}>
                   Search
                 </button>
                 <button
                   type="button"
                   className="admin-link-btn secondary"
-                  disabled={contentAuditLoading}
                   onClick={() => {
-                    setContentQ("");
-                    setContentAuditActionType("");
-                    setContentAuditOffset(0);
-                    setContentAuditLastCount(0);
-                    setContentAuditLogs([]);
+                    setAuditQ("");
+                    setAuditActionType("");
+                    setAuditMediaType("");
+                    void loadAuditLogs(0, { q: "", actionType: "", mediaType: "" });
                   }}
                 >
                   Reset
                 </button>
               </div>
-              <div className="admin-list compact">
-                {contentAuditLogs.map((log) => (
+              <div className="admin-inline-actions spread">
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={!hasAuditPrev || auditLoading}
+                  onClick={() => void loadAuditLogs(Math.max(0, auditOffset - auditLimit))}
+                >
+                  Prev
+                </button>
+                <span className="admin-muted">offset: {auditOffset}</span>
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={!hasAuditNext || auditLoading}
+                  onClick={() => void loadAuditLogs(auditOffset + auditLimit)}
+                >
+                  Next
+                </button>
+              </div>
+            </article>
+
+            <article className="admin-card">
+              <h2>운영로그</h2>
+              <div className="admin-list">
+                {auditLogs.map((log) => (
                   <div key={log.id} className="admin-list-item top">
                     <div>
                       <strong>{log.title || `TMDB ${log.tmdb_id}`}</strong>
                       <p className="admin-muted">
-                        {log.action_type} / {CONTENT_MEDIA_LABEL[log.media_type]} / tmdb:{log.tmdb_id}
+                        {MEDIA_LABEL[log.media_type]} / tmdb:{log.tmdb_id}
                         {log.media_type === "season" ? ` / season:${log.season_number}` : ""}
+                      </p>
+                      <p className="admin-muted">
+                        {log.action_type} / by {log.admin_email || "-"} / {formatDate(log.created_at)}
                       </p>
                       <p className="admin-muted">
                         effective final: {log.effective_final_state || "-"} /{" "}
                         {log.effective_final_completed_at || "-"}
                       </p>
-                      <p className="admin-muted">
-                        by: {log.admin_email || "-"} / reason: {log.reason || "-"}
-                      </p>
+                      {log.reason ? <p className="admin-muted">reason: {log.reason}</p> : null}
+                      <p className="admin-muted">payload: {formatPayloadSnippet(log.payload)}</p>
                     </div>
-                    <span className="admin-muted">{formatDate(log.created_at)}</span>
                   </div>
                 ))}
-                {contentAuditLoading ? <p className="admin-muted">Loading...</p> : null}
-                {!contentAuditLoading && contentAuditLogs.length === 0 ? (
-                  <p className="admin-muted">No audit logs.</p>
+                {auditLoading ? <p className="admin-muted">Loading...</p> : null}
+                {!auditLoading && auditLogs.length === 0 ? (
+                  <p className="admin-muted">No operation logs.</p>
                 ) : null}
               </div>
-              <div className="admin-inline-actions spread">
-                <button
-                  type="button"
-                  className="admin-link-btn secondary"
-                  disabled={!hasContentAuditPrev || contentAuditLoading}
-                  onClick={() =>
-                    void loadContentAuditLogs(Math.max(0, contentAuditOffset - contentAuditLimit))
-                  }
-                >
-                  Prev
-                </button>
-                <span className="admin-muted">offset: {contentAuditOffset}</span>
-                <button
-                  type="button"
-                  className="admin-link-btn secondary"
-                  disabled={!hasContentAuditNext || contentAuditLoading}
-                  onClick={() => void loadContentAuditLogs(contentAuditOffset + contentAuditLimit)}
-                >
-                  Next
-                </button>
-              </div>
-            </article>
-          </section>
-        ) : null}
-
-        {tab === "users" ? (
-          <section className="admin-section admin-two-col">
-            <article className="admin-card">
-              <h2>User Search</h2>
-              <div className="admin-search-row">
-                <input
-                  value={usersQuery}
-                  onChange={(event) => setUsersQuery(event.target.value)}
-                  placeholder="email or user_id"
-                />
-                <button
-                  type="button"
-                  className="admin-link-btn"
-                  disabled={usersLoading}
-                  onClick={() => {
-                    setUsersOffset(0);
-                    void loadUsers(usersQuery, 0);
-                  }}
-                >
-                  Search
-                </button>
-              </div>
-
-              <div className="admin-list">
-                {users.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={`admin-user-item ${selectedUser?.id === item.id ? "active" : ""}`}
-                    onClick={() => void loadUserFollows(item.id)}
-                  >
-                    <div>
-                      <strong>{item.email}</strong>
-                      <p className="admin-muted">user_id: {item.id}</p>
-                    </div>
-                    <div className="admin-user-meta">
-                      <span>{item.follows_count} follows</span>
-                      {item.pending_outbox_count > 0 ? (
-                        <span>{item.pending_outbox_count} pending</span>
-                      ) : null}
-                      {item.is_admin ? <span className="admin-pill">admin</span> : null}
-                    </div>
-                  </button>
-                ))}
-                {usersLoading ? <p className="admin-muted">Loading...</p> : null}
-                {!usersLoading && users.length === 0 ? (
-                  <p className="admin-muted">No users found.</p>
-                ) : null}
-              </div>
-
-              <div className="admin-inline-actions spread">
-                <button
-                  type="button"
-                  className="admin-link-btn secondary"
-                  disabled={!hasUsersPrev || usersLoading}
-                  onClick={() => void loadUsers(usersQuery, Math.max(0, usersOffset - usersLimit))}
-                >
-                  Prev
-                </button>
-                <span className="admin-muted">
-                  {usersTotal === 0
-                    ? "0"
-                    : `${usersOffset + 1}-${Math.min(usersOffset + usersLimit, usersTotal)}`}{" "}
-                  / {usersTotal}
-                </span>
-                <button
-                  type="button"
-                  className="admin-link-btn secondary"
-                  disabled={!hasUsersNext || usersLoading}
-                  onClick={() => void loadUsers(usersQuery, usersOffset + usersLimit)}
-                >
-                  Next
-                </button>
-              </div>
-            </article>
-
-            <article className="admin-card">
-              <h2>User Details</h2>
-              {!selectedUser ? <p className="admin-muted">Select a user from the list.</p> : null}
-              {selectedUser ? (
-                <>
-                  <div className="admin-detail-header">
-                    <div>
-                      <strong>{selectedUser.email}</strong>
-                      <p className="admin-muted">user_id: {selectedUser.id}</p>
-                      <p className="admin-muted">joined: {formatDate(selectedUser.created_at)}</p>
-                    </div>
-                    <button
-                      type="button"
-                      className="admin-link-btn"
-                      disabled={detailActionLoading}
-                      onClick={() => void refreshSelectedUser()}
-                    >
-                      Refresh User
-                    </button>
-                  </div>
-
-                  <div className="admin-list">
-                    {selectedFollows.map((follow) => (
-                      <div key={follow.id} className="admin-list-item">
-                        <div>
-                          <strong>{follow.title || `TMDB ${follow.tmdb_id}`}</strong>
-                          <p className="admin-muted">
-                            {TARGET_LABEL[follow.target_type]} / tmdb:{follow.tmdb_id}
-                            {follow.season_number !== null ? ` / season:${follow.season_number}` : ""}
-                          </p>
-                          <p className="admin-muted">
-                            status: {follow.status_raw || "-"} / cache:{" "}
-                            {formatDate(follow.cache_updated_at)}
-                          </p>
-                        </div>
-                        <div className="admin-inline-actions">
-                          <span className="admin-pill">{follow.frequency}</span>
-                          <button
-                            type="button"
-                            className="admin-link-btn danger"
-                            disabled={detailActionLoading}
-                            onClick={() =>
-                              void deleteFollow(follow.id, follow.title, follow.tmdb_id)
-                            }
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                    {detailLoading ? <p className="admin-muted">Loading...</p> : null}
-                    {!detailLoading && selectedFollows.length === 0 ? (
-                      <p className="admin-muted">No follows.</p>
-                    ) : null}
-                  </div>
-                </>
-              ) : null}
             </article>
           </section>
         ) : null}
@@ -2714,7 +1627,7 @@ export const AdminPage = () => {
         {tab === "cdcEvents" ? (
           <section className="admin-section admin-two-col">
             <article className="admin-card">
-              <h2>CDC Filters</h2>
+              <h2>CDC 이벤트 필터</h2>
               <div className="admin-field">
                 <label>Search</label>
                 <input
@@ -2725,17 +1638,14 @@ export const AdminPage = () => {
               </div>
               <div className="admin-field">
                 <label>Event Type</label>
-                <select value={cdcEventType} onChange={(event) => setCdcEventType(event.target.value)}>
-                  <option value="">All</option>
-                  <option value="date_set">date_set</option>
-                  <option value="date_changed">date_changed</option>
-                  <option value="status_milestone">status_milestone</option>
-                  <option value="season_binge_ready">season_binge_ready</option>
-                  <option value="full_run_concluded">full_run_concluded</option>
-                </select>
+                <input
+                  value={cdcEventType}
+                  onChange={(event) => setCdcEventType(event.target.value)}
+                  placeholder="date_changed, status_milestone..."
+                />
               </div>
               <div className="admin-field">
-                <label>Source Type</label>
+                <label>Source</label>
                 <select value={cdcSource} onChange={(event) => setCdcSource(event.target.value)}>
                   <option value="">All</option>
                   <option value="movie">movie</option>
@@ -2744,42 +1654,38 @@ export const AdminPage = () => {
                 </select>
               </div>
               <div className="admin-field">
-                <label>Content Id</label>
+                <label>Content ID (tmdb)</label>
                 <input
                   value={cdcContentId}
                   onChange={(event) => setCdcContentId(event.target.value)}
-                  placeholder="tmdb id"
+                  placeholder="12345"
                 />
               </div>
-              <div className="admin-field">
-                <label>Created From</label>
-                <input
-                  type="datetime-local"
-                  value={cdcCreatedFrom}
-                  onChange={(event) => setCdcCreatedFrom(event.target.value)}
-                />
-              </div>
-              <div className="admin-field">
-                <label>Created To</label>
-                <input
-                  type="datetime-local"
-                  value={cdcCreatedTo}
-                  onChange={(event) => setCdcCreatedTo(event.target.value)}
-                />
+              <div className="admin-form-grid">
+                <div className="admin-field">
+                  <label>Created From</label>
+                  <input
+                    type="datetime-local"
+                    value={cdcCreatedFrom}
+                    onChange={(event) => setCdcCreatedFrom(event.target.value)}
+                  />
+                </div>
+                <div className="admin-field">
+                  <label>Created To</label>
+                  <input
+                    type="datetime-local"
+                    value={cdcCreatedTo}
+                    onChange={(event) => setCdcCreatedTo(event.target.value)}
+                  />
+                </div>
               </div>
               <div className="admin-inline-actions">
-                <button
-                  type="button"
-                  className="admin-link-btn"
-                  disabled={cdcLoading}
-                  onClick={() => void loadCdcEvents(0)}
-                >
+                <button type="button" className="admin-link-btn" onClick={() => void loadCdcEvents(0)}>
                   Search
                 </button>
                 <button
                   type="button"
                   className="admin-link-btn secondary"
-                  disabled={cdcLoading}
                   onClick={() => {
                     setCdcQ("");
                     setCdcEventType("");
@@ -2787,9 +1693,14 @@ export const AdminPage = () => {
                     setCdcContentId("");
                     setCdcCreatedFrom("");
                     setCdcCreatedTo("");
-                    setCdcOffset(0);
-                    setCdcEvents([]);
-                    setCdcLastCount(0);
+                    void loadCdcEvents(0, {
+                      q: "",
+                      eventType: "",
+                      source: "",
+                      contentId: "",
+                      createdFrom: "",
+                      createdTo: "",
+                    });
                   }}
                 >
                   Reset
@@ -2817,33 +1728,31 @@ export const AdminPage = () => {
             </article>
 
             <article className="admin-card">
-              <h2>CDC Events</h2>
+              <h2>CDC 이벤트</h2>
               <div className="admin-list">
                 {cdcEvents.map((event) => (
-                  <div key={event.id} className="admin-list-item">
+                  <div key={event.id} className="admin-list-item top">
                     <div>
-                      <strong>{event.event_type}</strong>
+                      <strong>{event.title || `TMDB ${event.tmdb_id || "-"}`}</strong>
                       <p className="admin-muted">
-                        {event.user_email || "-"} / {event.source || "-"} /{" "}
-                        {event.title || `TMDB ${event.tmdb_id || "-"}`}
+                        {SOURCE_LABEL[event.source || ""] || event.source || "-"} / tmdb:
+                        {event.tmdb_id ?? "-"}
+                        {event.source === "tv_season" && event.season_number !== null
+                          ? ` / season:${event.season_number}`
+                          : ""}
                       </p>
                       <p className="admin-muted">
-                        content_id: {event.content_id || "-"} / season:{" "}
-                        {event.season_number === null ? "-" : event.season_number}
+                        {event.event_type} / {formatDate(event.created_at)}
                       </p>
-                      {event.event_payload ? (
-                        <p className="admin-muted">
-                          payload: {JSON.stringify(event.event_payload).slice(0, 160)}
-                        </p>
-                      ) : null}
+                      <p className="admin-muted">user: {event.user_email || "-"}</p>
+                      <p className="admin-muted">
+                        payload: {formatPayloadSnippet(event.event_payload || {})}
+                      </p>
                     </div>
-                    <span className="admin-muted">{formatDate(event.created_at)}</span>
                   </div>
                 ))}
                 {cdcLoading ? <p className="admin-muted">Loading...</p> : null}
-                {!cdcLoading && cdcEvents.length === 0 ? (
-                  <p className="admin-muted">No events found.</p>
-                ) : null}
+                {!cdcLoading && cdcEvents.length === 0 ? <p className="admin-muted">No CDC events.</p> : null}
               </div>
             </article>
           </section>
@@ -2852,48 +1761,50 @@ export const AdminPage = () => {
         {tab === "reports" ? (
           <section className="admin-section admin-two-col">
             <article className="admin-card">
-              <h2>Report Filters</h2>
+              <h2>작업로그 필터</h2>
               <div className="admin-field">
-                <label>Job Name</label>
+                <label>crawler_name</label>
                 <input
                   value={reportsCrawlerName}
                   onChange={(event) => setReportsCrawlerName(event.target.value)}
-                  placeholder="dispatch_email, refresh_all, refresh_user"
+                  placeholder="scheduled publication cdc"
                 />
               </div>
               <div className="admin-field">
-                <label>Status</label>
-                <select
-                  value={reportsStatus}
-                  onChange={(event) => setReportsStatus(event.target.value)}
-                >
+                <label>status</label>
+                <select value={reportsStatus} onChange={(event) => setReportsStatus(event.target.value)}>
                   <option value="">All</option>
                   <option value="success">success</option>
                   <option value="warning">warning</option>
                   <option value="failure">failure</option>
+                  <option value="ok">ok</option>
+                  <option value="warn">warn</option>
+                  <option value="fail">fail</option>
+                  <option value="skip">skip</option>
                 </select>
               </div>
-              <div className="admin-field">
-                <label>Created From</label>
-                <input
-                  type="datetime-local"
-                  value={reportsCreatedFrom}
-                  onChange={(event) => setReportsCreatedFrom(event.target.value)}
-                />
-              </div>
-              <div className="admin-field">
-                <label>Created To</label>
-                <input
-                  type="datetime-local"
-                  value={reportsCreatedTo}
-                  onChange={(event) => setReportsCreatedTo(event.target.value)}
-                />
+              <div className="admin-form-grid">
+                <div className="admin-field">
+                  <label>created_from</label>
+                  <input
+                    type="datetime-local"
+                    value={reportsCreatedFrom}
+                    onChange={(event) => setReportsCreatedFrom(event.target.value)}
+                  />
+                </div>
+                <div className="admin-field">
+                  <label>created_to</label>
+                  <input
+                    type="datetime-local"
+                    value={reportsCreatedTo}
+                    onChange={(event) => setReportsCreatedTo(event.target.value)}
+                  />
+                </div>
               </div>
               <div className="admin-inline-actions">
                 <button
                   type="button"
                   className="admin-link-btn"
-                  disabled={reportsLoading}
                   onClick={() => void Promise.all([loadReports(0), loadDailySummary()])}
                 >
                   Search
@@ -2901,16 +1812,15 @@ export const AdminPage = () => {
                 <button
                   type="button"
                   className="admin-link-btn secondary"
-                  disabled={reportsLoading}
                   onClick={() => {
                     setReportsCrawlerName("");
                     setReportsStatus("");
                     setReportsCreatedFrom("");
                     setReportsCreatedTo("");
-                    setReportsOffset(0);
-                    setReports([]);
-                    setReportsLastCount(0);
-                    setDailySummary(null);
+                    void Promise.all([
+                      loadReports(0, { crawlerName: "", status: "", createdFrom: "", createdTo: "" }),
+                      loadDailySummary({ createdFrom: "", createdTo: "" }),
+                    ]);
                   }}
                 >
                   Reset
@@ -2935,134 +1845,133 @@ export const AdminPage = () => {
                   Next
                 </button>
               </div>
-
               <hr className="admin-divider" />
-
-              <div className="admin-field">
-                <label>Cleanup Keep Days</label>
+              <h3>로그 정리</h3>
+              <div className="admin-inline-actions">
                 <input
-                  type="number"
-                  min={1}
-                  max={365}
                   value={cleanupKeepDays}
                   onChange={(event) => setCleanupKeepDays(event.target.value)}
+                  placeholder="keep days"
                 />
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={cleanupLoading}
+                  onClick={() => void cleanupReports()}
+                >
+                  Cleanup
+                </button>
               </div>
-              <button
-                type="button"
-                className="admin-link-btn danger"
-                disabled={cleanupLoading}
-                onClick={() => void cleanupReports()}
-              >
-                Cleanup Old Reports
-              </button>
             </article>
 
-            <div className="admin-stack">
-              <article className="admin-card">
-                <div className="admin-inline-actions spread">
-                  <h2>Daily Summary</h2>
+            <article className="admin-card">
+              <div className="admin-inline-actions spread">
+                <h2>작업로그</h2>
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  onClick={() => void Promise.all([loadReports(0), loadDailySummary()])}
+                >
+                  Refresh
+                </button>
+              </div>
+
+              {dailySummary ? (
+                <div className="admin-stack">
                   <div className="admin-inline-actions">
+                    <span className={statusBadgeClass(dailySummary.overall_status)}>
+                      {dailySummary.overall_status}
+                    </span>
                     <button
                       type="button"
                       className="admin-link-btn secondary"
-                      disabled={dailySummaryLoading}
-                      onClick={() => void loadDailySummary()}
-                    >
-                      Refresh
-                    </button>
-                    <button
-                      type="button"
-                      className="admin-link-btn"
-                      disabled={!dailySummary?.summary_text}
-                      onClick={() => void copySummary()}
+                      disabled={!dailySummary.summary_text}
+                      onClick={() => void copyDailySummary()}
                     >
                       Copy Summary
                     </button>
                   </div>
+                  <p className="admin-muted">{dailySummary.subject_text}</p>
+                  <pre className="admin-pre">{dailySummary.summary_text}</pre>
                 </div>
-                {dailySummaryLoading ? <p className="admin-muted">Loading...</p> : null}
-                {dailySummary ? (
-                  <>
-                    <p className="admin-muted">{dailySummary.subject_text}</p>
-                    <ul className="admin-chip-list">
-                      {Object.entries(dailySummary.counts || {}).map(([key, count]) => (
-                        <li key={key}>
-                          <span>{key}</span>
-                          <strong>{count}</strong>
-                        </li>
-                      ))}
-                      <li>
-                        <span>total_reports</span>
-                        <strong>{dailySummary.total_reports}</strong>
-                      </li>
-                    </ul>
-                    <pre className="admin-pre">{dailySummary.summary_text}</pre>
-                  </>
-                ) : null}
-              </article>
+              ) : (
+                <p className="admin-muted">{dailySummaryLoading ? "Loading summary..." : "No summary."}</p>
+              )}
 
-              <article className="admin-card">
-                <h2>Report List</h2>
-                <div className="admin-list">
-                  {reports.map((report) => (
-                    <div key={report.id} className="admin-list-item">
-                      <div>
+              <h3>Crawler Reports</h3>
+              <div className="admin-list">
+                {reports.map((report) => (
+                  <div key={report.id} className="admin-list-item top">
+                    <div>
+                      <div className="admin-inline-actions">
                         <strong>{report.crawler_name}</strong>
-                        <p className="admin-muted">
-                          {formatDate(report.created_at)} / {report.status}
-                        </p>
-                        <p className="admin-muted">{formatReportSummary(report.report_data)}</p>
-                        <details>
-                          <summary className="admin-muted">raw report data</summary>
-                          <pre className="admin-pre compact">
-                            {JSON.stringify(report.report_data, null, 2)}
-                          </pre>
-                        </details>
+                        <span className={statusBadgeClass(report.normalized_status)}>
+                          {report.normalized_status}
+                        </span>
                       </div>
-                      <span className={statusBadgeClass(report.normalized_status)}>
-                        {report.normalized_status}
-                      </span>
+                      <p className="admin-muted">{formatDate(report.created_at)}</p>
+                      <p className="admin-muted">{formatReportSummary(report.report_data || {})}</p>
+                      <p className="admin-muted">
+                        payload: {formatPayloadSnippet(report.report_data || {})}
+                      </p>
                     </div>
-                  ))}
-                  {reportsLoading ? <p className="admin-muted">Loading...</p> : null}
-                  {!reportsLoading && reports.length === 0 ? (
-                    <p className="admin-muted">No reports found.</p>
-                  ) : null}
-                </div>
-              </article>
-            </div>
+                  </div>
+                ))}
+                {reportsLoading ? <p className="admin-muted">Loading...</p> : null}
+                {!reportsLoading && reports.length === 0 ? <p className="admin-muted">No reports.</p> : null}
+              </div>
+            </article>
           </section>
         ) : null}
 
         {tab === "dailyNotification" ? (
-          <section className="admin-section admin-two-col">
+          <section className="admin-section">
             <article className="admin-card">
-              <h2>Daily Notification Report</h2>
-              <div className="admin-field">
-                <label>Date</label>
-                <input
-                  type="date"
-                  value={dailyDate}
-                  onChange={(event) => setDailyDate(event.target.value)}
-                />
+              <div className="admin-inline-actions spread">
+                <h2>일일알림리포트</h2>
+                <div className="admin-inline-actions">
+                  <button
+                    type="button"
+                    className="admin-link-btn secondary"
+                    disabled={!dailyPayload?.text_report}
+                    onClick={() => void copyDailyNotification()}
+                  >
+                    Copy Report
+                  </button>
+                </div>
               </div>
-              <label className="admin-checkbox">
-                <input
-                  type="checkbox"
-                  checked={dailyIncludeFailed}
-                  onChange={(event) => setDailyIncludeFailed(event.target.checked)}
-                />
-                include failed
-              </label>
-              <label className="admin-checkbox">
-                <input
-                  type="checkbox"
-                  checked={dailyIncludePending}
-                  onChange={(event) => setDailyIncludePending(event.target.checked)}
-                />
-                include pending/sending
-              </label>
+
+              <div className="admin-form-grid">
+                <div className="admin-field">
+                  <label>Date</label>
+                  <input
+                    type="date"
+                    value={dailyDate}
+                    onChange={(event) => setDailyDate(event.target.value)}
+                  />
+                </div>
+                <div className="admin-field">
+                  <label>Options</label>
+                  <div className="admin-inline-actions">
+                    <label className="admin-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={dailyIncludeFailed}
+                        onChange={(event) => setDailyIncludeFailed(event.target.checked)}
+                      />
+                      include failed
+                    </label>
+                    <label className="admin-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={dailyIncludePending}
+                        onChange={(event) => setDailyIncludePending(event.target.checked)}
+                      />
+                      include pending
+                    </label>
+                  </div>
+                </div>
+              </div>
               <div className="admin-inline-actions">
                 <button
                   type="button"
@@ -3070,61 +1979,50 @@ export const AdminPage = () => {
                   disabled={dailyLoading}
                   onClick={() => void loadDailyNotification()}
                 >
-                  Load Report
-                </button>
-                <button
-                  type="button"
-                  className="admin-link-btn secondary"
-                  disabled={!dailyPayload?.text_report}
-                  onClick={() => void copyDailyNotification()}
-                >
-                  Copy Report
+                  Load
                 </button>
               </div>
-            </article>
 
-            <article className="admin-card">
-              <h2>Summary</h2>
-              {dailyLoading ? <p className="admin-muted">Loading...</p> : null}
               {dailyPayload ? (
-                <>
-                  <ul className="admin-chip-list">
-                    <li>
-                      <span>total</span>
-                      <strong>{dailyPayload.stats.total_items}</strong>
-                    </li>
-                    <li>
-                      <span>sent</span>
-                      <strong>{dailyPayload.stats.sent_count}</strong>
-                    </li>
-                    <li>
-                      <span>pending</span>
-                      <strong>{dailyPayload.stats.pending_count}</strong>
-                    </li>
-                    <li>
-                      <span>failed</span>
-                      <strong>{dailyPayload.stats.failed_count}</strong>
-                    </li>
-                    <li>
-                      <span>recipients</span>
-                      <strong>{dailyPayload.stats.unique_recipients}</strong>
-                    </li>
-                  </ul>
+                <div className="admin-stack">
+                  <div className="admin-kv compact">
+                    <div>
+                      <dt>date</dt>
+                      <dd>{dailyPayload.stats.date}</dd>
+                    </div>
+                    <div>
+                      <dt>total</dt>
+                      <dd>{dailyPayload.stats.total_items}</dd>
+                    </div>
+                    <div>
+                      <dt>sent</dt>
+                      <dd>{dailyPayload.stats.sent_count}</dd>
+                    </div>
+                    <div>
+                      <dt>pending</dt>
+                      <dd>{dailyPayload.stats.pending_count}</dd>
+                    </div>
+                    <div>
+                      <dt>failed</dt>
+                      <dd>{dailyPayload.stats.failed_count}</dd>
+                    </div>
+                    <div>
+                      <dt>unique recipients</dt>
+                      <dd>{dailyPayload.stats.unique_recipients}</dd>
+                    </div>
+                  </div>
                   <p className="admin-muted">
-                    duration:{" "}
+                    generated: {formatDate(dailyPayload.generated_at)} / duration:{" "}
                     {typeof dailyPayload.stats.duration_seconds === "number"
                       ? `${dailyPayload.stats.duration_seconds.toFixed(2)}s`
                       : "-"}
-                  </p>
-                  <p className="admin-muted">
-                    event_counts: {JSON.stringify(dailyPayload.stats.event_counts || {})}
                   </p>
                   <pre className="admin-pre">{dailyPayload.text_report}</pre>
 
                   <h3>Items</h3>
                   <div className="admin-list">
                     {dailyItems.map((item) => (
-                      <div key={item.id} className="admin-list-item">
+                      <div key={item.id} className="admin-list-item top">
                         <div>
                           <strong>{item.title || `TMDB ${item.tmdb_id || "-"}`}</strong>
                           <p className="admin-muted">
@@ -3133,140 +2031,16 @@ export const AdminPage = () => {
                           <p className="admin-muted">
                             created: {formatDate(item.created_at)} / sent: {formatDate(item.sent_at)}
                           </p>
-                          {item.last_error ? (
-                            <p className="admin-error-text">{item.last_error}</p>
-                          ) : null}
+                          {item.last_error ? <p className="admin-error-text">{item.last_error}</p> : null}
                         </div>
                       </div>
                     ))}
-                    {dailyItems.length === 0 ? (
-                      <p className="admin-muted">No items in selected date.</p>
-                    ) : null}
+                    {dailyItems.length === 0 ? <p className="admin-muted">No items.</p> : null}
                   </div>
-                </>
-              ) : null}
-            </article>
-          </section>
-        ) : null}
-
-        {tab === "ops" ? (
-          <section className="admin-section admin-two-col">
-            <article className="admin-card">
-              <h2>Manual Operations</h2>
-              <div className="admin-field">
-                <label>dispatch batch (optional)</label>
-                <input
-                  value={dispatchBatch}
-                  onChange={(event) => setDispatchBatch(event.target.value)}
-                  placeholder="e.g. 50"
-                />
-              </div>
-              <button
-                type="button"
-                className="admin-link-btn"
-                disabled={opsLoading}
-                onClick={() => void runDispatch()}
-              >
-                Run Email Dispatch
-              </button>
-
-              <hr className="admin-divider" />
-
-              <div className="admin-field">
-                <label>limit_users (optional)</label>
-                <input
-                  value={limitUsers}
-                  onChange={(event) => setLimitUsers(event.target.value)}
-                  placeholder="e.g. 100"
-                />
-              </div>
-              <div className="admin-field">
-                <label>limit_follows (optional)</label>
-                <input
-                  value={limitFollows}
-                  onChange={(event) => setLimitFollows(event.target.value)}
-                  placeholder="e.g. 500"
-                />
-              </div>
-              <label className="admin-checkbox">
-                <input
-                  type="checkbox"
-                  checked={forceRefresh}
-                  onChange={(event) => setForceRefresh(event.target.checked)}
-                />
-                use force_fetch
-              </label>
-              <div className="admin-inline-actions">
-                <button
-                  type="button"
-                  className="admin-link-btn"
-                  disabled={opsLoading}
-                  onClick={() => void runRefreshAll()}
-                >
-                  Run Refresh All
-                </button>
-                <button type="button" className="admin-link-btn secondary" onClick={saveOpsSettings}>
-                  Save Trigger Settings
-                </button>
-              </div>
-            </article>
-
-            <article className="admin-card">
-              <div className="admin-inline-actions spread">
-                <h2>Outbox Summary</h2>
-                <button
-                  type="button"
-                  className="admin-link-btn secondary"
-                  disabled={summaryLoading}
-                  onClick={() => void loadOutboxSummary()}
-                >
-                  Refresh
-                </button>
-              </div>
-              {summaryLoading ? <p className="admin-muted">Loading...</p> : null}
-
-              <h3>By Status</h3>
-              <ul className="admin-chip-list">
-                {Object.entries(summary?.by_status || {}).map(([status, count]) => (
-                  <li key={status}>
-                    <span>{status}</span>
-                    <strong>{count}</strong>
-                  </li>
-                ))}
-              </ul>
-
-              <h3>By Channel + Status</h3>
-              <div className="admin-list">
-                {(summary?.by_channel_and_status || []).map((row) => (
-                  <div key={`${row.channel}-${row.status}`} className="admin-list-item">
-                    <span>
-                      {row.channel} / {row.status}
-                    </span>
-                    <strong>{row.count}</strong>
-                  </div>
-                ))}
-              </div>
-
-              <h3>Recent Failures</h3>
-              <div className="admin-list">
-                {(summary?.recent_failures || []).map((item) => (
-                  <div key={item.id} className="admin-list-item">
-                    <div>
-                      <strong>{item.email}</strong>
-                      <p className="admin-muted">
-                        {item.channel} / attempts: {item.attempt_count}
-                      </p>
-                      {item.last_error ? (
-                        <p className="admin-error-text">{item.last_error}</p>
-                      ) : null}
-                    </div>
-                    <span className="admin-muted">{formatDate(item.created_at)}</span>
-                  </div>
-                ))}
-              </div>
-              <p className="admin-muted">
-                oldest pending: {formatDate(summary?.oldest_pending_created_at)}
-              </p>
+                </div>
+              ) : (
+                <p className="admin-muted">{dailyLoading ? "Loading..." : "No report loaded."}</p>
+              )}
             </article>
           </section>
         ) : null}
