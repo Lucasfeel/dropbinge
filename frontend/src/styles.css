@@ -135,6 +135,20 @@ a {
   height: 27px;
 }
 
+.profile-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  user-select: none;
+}
+
 .top-action-button:focus-visible {
   outline: 2px solid #9bb0ff;
   outline-offset: 3px;
@@ -177,6 +191,12 @@ a {
   .profile-shortcut-button svg {
     width: 24px;
     height: 24px;
+  }
+
+  .profile-avatar {
+    width: 30px;
+    height: 30px;
+    font-size: 15px;
   }
 }
 

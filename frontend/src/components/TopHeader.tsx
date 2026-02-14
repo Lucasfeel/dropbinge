@@ -1,10 +1,35 @@
 import { useNavigate } from "react-router-dom";
+import type { CSSProperties } from "react";
 
 import { IconMy } from "../icons/nav/IconMy";
+import { useAuth } from "../hooks/useAuth";
 import { BrandLogo } from "./BrandLogo";
+
+const hashEmail = (value: string) => {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+  return hash;
+};
+
+const buildProfileAvatar = (email: string) => {
+  const normalized = email.trim().toLowerCase();
+  const initial = normalized ? normalized[0].toUpperCase() : "?";
+  const hue = hashEmail(normalized) % 360;
+  return {
+    initial,
+    style: {
+      backgroundColor: `hsl(${hue} 62% 82%)`,
+      color: `hsl(${hue} 35% 18%)`,
+    } as CSSProperties,
+  };
+};
 
 export const TopHeader = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const avatar = user?.email ? buildProfileAvatar(user.email) : null;
 
   return (
     <header className="top-header">
@@ -28,7 +53,13 @@ export const TopHeader = () => {
             onClick={() => navigate("/me")}
             aria-label="My page shortcut"
           >
-            <IconMy aria-hidden="true" />
+            {avatar ? (
+              <span className="profile-avatar" style={avatar.style} aria-hidden="true">
+                {avatar.initial}
+              </span>
+            ) : (
+              <IconMy aria-hidden="true" />
+            )}
           </button>
         </div>
       </div>
