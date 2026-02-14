@@ -6,6 +6,7 @@ import { HorizontalRail } from "../components/HorizontalRail";
 import { GridSkeleton } from "../components/GridSkeleton";
 import { PosterGridCard } from "../components/PosterGridCard";
 import { SectionHeader } from "../components/SectionHeader";
+import { setBrowseCache } from "../stores/browseCache";
 import { useFollowStore } from "../stores/followStore";
 import type { TitleSummary } from "../types";
 import { getRecentSearches } from "../utils/searchHistory";
@@ -77,6 +78,12 @@ export const HomePage = () => {
         const response = await fetchMovieUpcoming(1);
         if (!active) return;
         setBlockbusterItems(response.results.slice(0, 12));
+        setBrowseCache("movie:upcoming:popularity", {
+          items: response.results,
+          page: response.page,
+          totalPages: response.total_pages,
+          updatedAt: Date.now(),
+        });
       } catch (error) {
         if (active) {
           setBlockbusterItems([]);

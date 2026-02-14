@@ -18,6 +18,8 @@ const FILTERS = [
 ];
 const DEFAULT_FILTER = "upcoming";
 const FILTER_KEYS = new Set(FILTERS.map((item) => item.key));
+const UPCOMING_SKELETON_DELAY_MS = 180;
+const UPCOMING_SKELETON_MIN_MS = 550;
 
 export const MoviePage = () => {
   const { items } = useFollowStore();
@@ -31,9 +33,13 @@ export const MoviePage = () => {
   const [totalPages, setTotalPages] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showInitialSkeleton, setShowInitialSkeleton] = useState(false);
   const mountedRef = useRef(false);
   const cacheKeyRef = useRef(cacheKey);
   const browseItemsRef = useRef<TitleSummary[]>([]);
+  const skeletonDelayTimerRef = useRef<number | null>(null);
+  const skeletonHideTimerRef = useRef<number | null>(null);
+  const skeletonShownAtRef = useRef<number | null>(null);
 
   const trackedItems = useMemo(
     () =>
@@ -97,6 +103,19 @@ export const MoviePage = () => {
   }, []);
 
   useEffect(() => {
+    return () => {
+      if (skeletonDelayTimerRef.current !== null) {
+        window.clearTimeout(skeletonDelayTimerRef.current);
+        skeletonDelayTimerRef.current = null;
+      }
+      if (skeletonHideTimerRef.current !== null) {
+        window.clearTimeout(skeletonHideTimerRef.current);
+        skeletonHideTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     cacheKeyRef.current = cacheKey;
   }, [cacheKey]);
 
@@ -125,6 +144,65 @@ export const MoviePage = () => {
     void loadBrowse(1, true, cacheKey);
   }, [cacheKey, loadBrowse]);
 
+  const isInitialLoading = loading && browseItems.length === 0;
+  const useUpcomingSkeletonDelay = filter === "upcoming";
+  useEffect(() => {
+    if (!useUpcomingSkeletonDelay) {
+      if (skeletonDelayTimerRef.current !== null) {
+        window.clearTimeout(skeletonDelayTimerRef.current);
+        skeletonDelayTimerRef.current = null;
+      }
+      if (skeletonHideTimerRef.current !== null) {
+        window.clearTimeout(skeletonHideTimerRef.current);
+        skeletonHideTimerRef.current = null;
+      }
+      if (showInitialSkeleton) {
+        setShowInitialSkeleton(false);
+      }
+      skeletonShownAtRef.current = null;
+      return;
+    }
+
+    if (isInitialLoading) {
+      if (skeletonHideTimerRef.current !== null) {
+        window.clearTimeout(skeletonHideTimerRef.current);
+        skeletonHideTimerRef.current = null;
+      }
+      if (!showInitialSkeleton && skeletonDelayTimerRef.current === null) {
+        skeletonDelayTimerRef.current = window.setTimeout(() => {
+          skeletonDelayTimerRef.current = null;
+          skeletonShownAtRef.current = Date.now();
+          setShowInitialSkeleton(true);
+        }, UPCOMING_SKELETON_DELAY_MS);
+      }
+      return;
+    }
+
+    if (skeletonDelayTimerRef.current !== null) {
+      window.clearTimeout(skeletonDelayTimerRef.current);
+      skeletonDelayTimerRef.current = null;
+    }
+
+    if (!showInitialSkeleton) {
+      return;
+    }
+
+    const shownAt = skeletonShownAtRef.current ?? Date.now();
+    const remaining = Math.max(UPCOMING_SKELETON_MIN_MS - (Date.now() - shownAt), 0);
+    if (remaining === 0) {
+      setShowInitialSkeleton(false);
+      skeletonShownAtRef.current = null;
+      return;
+    }
+    if (skeletonHideTimerRef.current === null) {
+      skeletonHideTimerRef.current = window.setTimeout(() => {
+        skeletonHideTimerRef.current = null;
+        setShowInitialSkeleton(false);
+        skeletonShownAtRef.current = null;
+      }, remaining);
+    }
+  }, [isInitialLoading, showInitialSkeleton, useUpcomingSkeletonDelay]);
+
   const toTimestamp = (value?: string | null) => {
     if (!value) return 0;
     const ts = Date.parse(value);
@@ -143,6 +221,8 @@ export const MoviePage = () => {
 
   const hasMore = !error && (totalPages === null ? true : browsePage < totalPages);
   const isRefreshing = loading && browseItems.length > 0;
+  const showBrowseSkeleton = isInitialLoading && (!useUpcomingSkeletonDelay || showInitialSkeleton);
+  const showUpcomingLoadingHint = useUpcomingSkeletonDelay && isInitialLoading && !showInitialSkeleton;
   const loadMore = useCallback(() => {
     if (!hasMore || loading || error) return;
     void loadBrowse(browsePage + 1, false, cacheKey);
@@ -203,8 +283,12 @@ export const MoviePage = () => {
           </button>
         </div>
       ) : null}
-      {loading && browseItems.length === 0 ? (
+      {showBrowseSkeleton ? (
         <GridSkeleton count={8} />
+      ) : showUpcomingLoadingHint ? (
+        <div className="card">
+          <p>Loading upcoming releases...</p>
+        </div>
       ) : !error && browseItems.length === 0 ? (
         <div className="card">
           <p>No results.</p>
