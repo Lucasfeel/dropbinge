@@ -145,6 +145,71 @@ def init_db():
 
     cursor.execute(
         """
+        CREATE TABLE IF NOT EXISTS admin_tmdb_overrides (
+            id SERIAL PRIMARY KEY,
+            media_type TEXT NOT NULL,
+            tmdb_id BIGINT NOT NULL,
+            season_number INT NOT NULL DEFAULT -1,
+            override_status_raw TEXT NULL,
+            override_release_date DATE NULL,
+            override_next_air_date DATE NULL,
+            override_final_state TEXT NULL,
+            override_final_completed_at DATE NULL,
+            reason TEXT NULL,
+            admin_email TEXT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            UNIQUE(media_type, tmdb_id, season_number)
+        );
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS admin_tmdb_overrides_lookup_idx
+        ON admin_tmdb_overrides (media_type, tmdb_id, season_number);
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS admin_tmdb_overrides_updated_at_idx
+        ON admin_tmdb_overrides (updated_at DESC);
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS admin_content_action_logs (
+            id SERIAL PRIMARY KEY,
+            action_type TEXT NOT NULL,
+            media_type TEXT NOT NULL,
+            tmdb_id BIGINT NOT NULL,
+            season_number INT NOT NULL DEFAULT -1,
+            reason TEXT NULL,
+            admin_email TEXT NULL,
+            payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        );
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS admin_content_action_logs_created_at_idx
+        ON admin_content_action_logs (created_at DESC);
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS admin_content_action_logs_target_idx
+        ON admin_content_action_logs (media_type, tmdb_id, season_number, created_at DESC);
+        """
+    )
+
+    cursor.execute(
+        """
         CREATE INDEX IF NOT EXISTS admin_job_reports_job_name_created_at_idx
         ON admin_job_reports (job_name, created_at DESC);
         """

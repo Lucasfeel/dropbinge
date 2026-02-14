@@ -6,6 +6,7 @@ import { useAuth } from "../hooks/useAuth";
 
 type TabKey =
   | "overview"
+  | "contents"
   | "users"
   | "cdcEvents"
   | "reports"
@@ -153,6 +154,88 @@ type DailyNotificationPayload = {
   text_report: string;
 };
 
+type ManagedContentFields = {
+  status_raw: string | null;
+  release_date: string | null;
+  next_air_date: string | null;
+  final_state: string | null;
+  final_completed_at: string | null;
+};
+
+type ManagedContentOverride = ManagedContentFields & {
+  id: number;
+  reason: string | null;
+  admin_email: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+type ManagedContentItem = {
+  key: string;
+  media_type: "movie" | "tv" | "season";
+  tmdb_id: number;
+  season_number: number;
+  title: string;
+  poster_path: string | null;
+  backdrop_path: string | null;
+  base: ManagedContentFields;
+  override: ManagedContentOverride | null;
+  effective: ManagedContentFields & { missing_final_completed_at: boolean };
+  updated_at: string | null;
+};
+
+type ManagedContentsPayload = {
+  success: boolean;
+  items: ManagedContentItem[];
+  limit: number;
+  offset: number;
+};
+
+type ManagedContentOverrideEntry = {
+  media_type: "movie" | "tv" | "season";
+  tmdb_id: number;
+  season_number: number;
+  title: string;
+  override: ManagedContentOverride | null;
+  base: {
+    status_raw: string | null;
+    final_state: string | null;
+    final_completed_at: string | null;
+  };
+};
+
+type ManagedContentOverridesPayload = {
+  success: boolean;
+  items: ManagedContentOverrideEntry[];
+  limit: number;
+  offset: number;
+};
+
+type ManagedContentAuditLog = {
+  id: number;
+  created_at: string | null;
+  action_type: "OVERRIDE_UPSERT" | "OVERRIDE_DELETE";
+  reason: string | null;
+  admin_email: string | null;
+  media_type: "movie" | "tv" | "season";
+  tmdb_id: number;
+  season_number: number;
+  title: string | null;
+  base_status_raw: string | null;
+  base_final_state: string | null;
+  base_final_completed_at: string | null;
+  effective_final_state: string | null;
+  effective_final_completed_at: string | null;
+  payload: Record<string, unknown>;
+};
+
+type ManagedContentAuditPayload = {
+  success: boolean;
+  logs: ManagedContentAuditLog[];
+  limit: number;
+  offset: number;
+};
+
 type OpsSettings = {
   dispatchBatch: string;
   limitUsers: string;
@@ -165,6 +248,11 @@ const TARGET_LABEL = {
   movie: "Movie",
   tv_full: "TV Full",
   tv_season: "TV Season",
+} as const;
+const CONTENT_MEDIA_LABEL = {
+  movie: "Movie",
+  tv: "TV",
+  season: "Season",
 } as const;
 
 const formatDate = (value: string | null | undefined) => {
@@ -186,6 +274,23 @@ const formatDate = (value: string | null | undefined) => {
 };
 
 const todayDateInput = () => new Date().toISOString().slice(0, 10);
+const toDateInput = (value: string | null | undefined) => {
+  if (!value) {
+    return "";
+  }
+  const normalized = value.trim();
+  if (!normalized) {
+    return "";
+  }
+  if (/^\d{4}-\d{2}-\d{2}/.test(normalized)) {
+    return normalized.slice(0, 10);
+  }
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) {
+    return "";
+  }
+  return parsed.toISOString().slice(0, 10);
+};
 
 const messageOf = (error: unknown, fallback: string) => {
   if (error instanceof Error && error.message) {
@@ -271,6 +376,44 @@ export const AdminPage = () => {
 
   const [overview, setOverview] = useState<OverviewPayload | null>(null);
   const [overviewLoading, setOverviewLoading] = useState(false);
+
+  const [contentQ, setContentQ] = useState("");
+  const [contentMediaType, setContentMediaType] = useState("");
+  const [contentHasOverride, setContentHasOverride] = useState("");
+  const [contentMissingFinalDate, setContentMissingFinalDate] = useState(false);
+  const [contentOffset, setContentOffset] = useState(0);
+  const [contentLimit] = useState(30);
+  const [contentLastCount, setContentLastCount] = useState(0);
+  const [contents, setContents] = useState<ManagedContentItem[]>([]);
+  const [contentsLoading, setContentsLoading] = useState(false);
+  const [selectedContent, setSelectedContent] = useState<ManagedContentItem | null>(null);
+
+  const [overrideStatusRaw, setOverrideStatusRaw] = useState("");
+  const [overrideReleaseDate, setOverrideReleaseDate] = useState("");
+  const [overrideNextAirDate, setOverrideNextAirDate] = useState("");
+  const [overrideFinalState, setOverrideFinalState] = useState("");
+  const [overrideFinalCompletedAt, setOverrideFinalCompletedAt] = useState("");
+  const [overrideReason, setOverrideReason] = useState("");
+  const [overrideSaving, setOverrideSaving] = useState(false);
+
+  const [contentOverrides, setContentOverrides] = useState<ManagedContentOverrideEntry[]>([]);
+  const [overridesLoading, setOverridesLoading] = useState(false);
+  const [overridesOffset, setOverridesOffset] = useState(0);
+  const [overridesLimit] = useState(20);
+  const [overridesLastCount, setOverridesLastCount] = useState(0);
+
+  const [missingContents, setMissingContents] = useState<ManagedContentItem[]>([]);
+  const [missingLoading, setMissingLoading] = useState(false);
+  const [missingOffset, setMissingOffset] = useState(0);
+  const [missingLimit] = useState(20);
+  const [missingLastCount, setMissingLastCount] = useState(0);
+
+  const [contentAuditActionType, setContentAuditActionType] = useState("");
+  const [contentAuditLogs, setContentAuditLogs] = useState<ManagedContentAuditLog[]>([]);
+  const [contentAuditLoading, setContentAuditLoading] = useState(false);
+  const [contentAuditOffset, setContentAuditOffset] = useState(0);
+  const [contentAuditLimit] = useState(20);
+  const [contentAuditLastCount, setContentAuditLastCount] = useState(0);
 
   const [usersQuery, setUsersQuery] = useState("");
   const [users, setUsers] = useState<UsersPayload["users"]>([]);
@@ -373,6 +516,16 @@ export const AdminPage = () => {
     notify("Trigger settings saved.", "success");
   };
 
+  useEffect(() => {
+    const current = selectedContent?.override;
+    setOverrideStatusRaw(current?.status_raw || "");
+    setOverrideReleaseDate(toDateInput(current?.release_date));
+    setOverrideNextAirDate(toDateInput(current?.next_air_date));
+    setOverrideFinalState(current?.final_state || "");
+    setOverrideFinalCompletedAt(toDateInput(current?.final_completed_at));
+    setOverrideReason(current?.reason || "");
+  }, [selectedContent]);
+
   const loadOverview = async () => {
     setOverviewLoading(true);
     try {
@@ -382,6 +535,203 @@ export const AdminPage = () => {
       notify(messageOf(error, "Failed to load overview."), "error");
     } finally {
       setOverviewLoading(false);
+    }
+  };
+
+  const loadContents = async (nextOffset = contentOffset) => {
+    setContentsLoading(true);
+    try {
+      const params = new URLSearchParams({
+        limit: String(contentLimit),
+        offset: String(nextOffset),
+      });
+      if (contentQ.trim()) params.set("q", contentQ.trim());
+      if (contentMediaType) params.set("media_type", contentMediaType);
+      if (contentHasOverride) params.set("has_override", contentHasOverride);
+      if (contentMissingFinalDate) params.set("missing_final_date", "1");
+      const payload = await apiFetch<ManagedContentsPayload>(
+        `/api/admin/contents/search?${params.toString()}`,
+      );
+      const items = payload.items || [];
+      setContents(items);
+      setContentOffset(payload.offset);
+      setContentLastCount(items.length);
+      setSelectedContent((prev) => {
+        if (!prev) {
+          return null;
+        }
+        const matched = items.find((item) => item.key === prev.key);
+        return matched || null;
+      });
+    } catch (error) {
+      notify(messageOf(error, "Failed to load contents."), "error");
+    } finally {
+      setContentsLoading(false);
+    }
+  };
+
+  const loadContentLookup = async (
+    target:
+      | { media_type: "movie" | "tv" | "season"; tmdb_id: number; season_number: number }
+      | ManagedContentItem,
+  ) => {
+    try {
+      const params = new URLSearchParams({
+        media_type: target.media_type,
+        tmdb_id: String(target.tmdb_id),
+        season_number: String(target.season_number),
+      });
+      const payload = await apiFetch<{ success: boolean; content: ManagedContentItem }>(
+        `/api/admin/contents/lookup?${params.toString()}`,
+      );
+      const content = payload.content;
+      setSelectedContent(content);
+      setContents((prev) => prev.map((item) => (item.key === content.key ? content : item)));
+    } catch (error) {
+      notify(messageOf(error, "Failed to load content details."), "error");
+    }
+  };
+
+  const loadContentOverrides = async (nextOffset = overridesOffset) => {
+    setOverridesLoading(true);
+    try {
+      const params = new URLSearchParams({
+        limit: String(overridesLimit),
+        offset: String(nextOffset),
+      });
+      if (contentQ.trim()) params.set("q", contentQ.trim());
+      if (contentMediaType) params.set("media_type", contentMediaType);
+      const payload = await apiFetch<ManagedContentOverridesPayload>(
+        `/api/admin/contents/overrides?${params.toString()}`,
+      );
+      setContentOverrides(payload.items || []);
+      setOverridesOffset(payload.offset);
+      setOverridesLastCount((payload.items || []).length);
+    } catch (error) {
+      notify(messageOf(error, "Failed to load override history."), "error");
+    } finally {
+      setOverridesLoading(false);
+    }
+  };
+
+  const loadMissingContents = async (nextOffset = missingOffset) => {
+    setMissingLoading(true);
+    try {
+      const params = new URLSearchParams({
+        limit: String(missingLimit),
+        offset: String(nextOffset),
+      });
+      if (contentQ.trim()) params.set("q", contentQ.trim());
+      if (contentMediaType) params.set("media_type", contentMediaType);
+      const payload = await apiFetch<ManagedContentsPayload>(
+        `/api/admin/contents/missing-final-date?${params.toString()}`,
+      );
+      setMissingContents(payload.items || []);
+      setMissingOffset(payload.offset);
+      setMissingLastCount((payload.items || []).length);
+    } catch (error) {
+      notify(messageOf(error, "Failed to load missing final-date contents."), "error");
+    } finally {
+      setMissingLoading(false);
+    }
+  };
+
+  const loadContentAuditLogs = async (nextOffset = contentAuditOffset) => {
+    setContentAuditLoading(true);
+    try {
+      const params = new URLSearchParams({
+        limit: String(contentAuditLimit),
+        offset: String(nextOffset),
+      });
+      if (contentQ.trim()) params.set("q", contentQ.trim());
+      if (contentMediaType) params.set("media_type", contentMediaType);
+      if (contentAuditActionType) params.set("action_type", contentAuditActionType);
+      const payload = await apiFetch<ManagedContentAuditPayload>(
+        `/api/admin/audit/logs?${params.toString()}`,
+      );
+      setContentAuditLogs(payload.logs || []);
+      setContentAuditOffset(payload.offset);
+      setContentAuditLastCount((payload.logs || []).length);
+    } catch (error) {
+      notify(messageOf(error, "Failed to load content audit logs."), "error");
+    } finally {
+      setContentAuditLoading(false);
+    }
+  };
+
+  const saveContentOverride = async () => {
+    if (!selectedContent) return;
+    setOverrideSaving(true);
+    try {
+      const body = {
+        media_type: selectedContent.media_type,
+        tmdb_id: selectedContent.tmdb_id,
+        season_number: selectedContent.season_number,
+        override_status_raw: overrideStatusRaw.trim() || null,
+        override_release_date: overrideReleaseDate || null,
+        override_next_air_date: overrideNextAirDate || null,
+        override_final_state: overrideFinalState.trim() || null,
+        override_final_completed_at: overrideFinalCompletedAt || null,
+        reason: overrideReason.trim() || null,
+      };
+      const payload = await apiFetch<{ success: boolean; content: ManagedContentItem | null }>(
+        "/api/admin/contents/override",
+        {
+          method: "POST",
+          body: JSON.stringify(body),
+        },
+      );
+      if (payload.content) {
+        const updatedContent = payload.content;
+        setSelectedContent(updatedContent);
+        setContents((prev) =>
+          prev.map((item) => (item.key === updatedContent.key ? updatedContent : item)),
+        );
+      }
+      notify("Content override saved.", "success");
+      await Promise.all([loadContentOverrides(0), loadMissingContents(0), loadContentAuditLogs(0)]);
+    } catch (error) {
+      notify(messageOf(error, "Failed to save content override."), "error");
+    } finally {
+      setOverrideSaving(false);
+    }
+  };
+
+  const deleteContentOverride = async () => {
+    if (!selectedContent) return;
+    const confirmed = window.confirm(
+      `Delete override for ${selectedContent.title || `TMDB ${selectedContent.tmdb_id}`}?`,
+    );
+    if (!confirmed) {
+      return;
+    }
+    setOverrideSaving(true);
+    try {
+      const payload = await apiFetch<{ success: boolean; content: ManagedContentItem | null }>(
+        "/api/admin/contents/override",
+        {
+          method: "DELETE",
+          body: JSON.stringify({
+            media_type: selectedContent.media_type,
+            tmdb_id: selectedContent.tmdb_id,
+            season_number: selectedContent.season_number,
+            reason: overrideReason.trim() || null,
+          }),
+        },
+      );
+      if (payload.content) {
+        const updatedContent = payload.content;
+        setSelectedContent(updatedContent);
+        setContents((prev) =>
+          prev.map((item) => (item.key === updatedContent.key ? updatedContent : item)),
+        );
+      }
+      notify("Content override deleted.", "success");
+      await Promise.all([loadContentOverrides(0), loadMissingContents(0), loadContentAuditLogs(0)]);
+    } catch (error) {
+      notify(messageOf(error, "Failed to delete content override."), "error");
+    } finally {
+      setOverrideSaving(false);
     }
   };
 
@@ -527,7 +877,14 @@ export const AdminPage = () => {
 
   useEffect(() => {
     if (!canAccessAdmin) return;
-    if (tab === "users") {
+    if (tab === "contents") {
+      void Promise.all([
+        loadContents(0),
+        loadContentOverrides(0),
+        loadMissingContents(0),
+        loadContentAuditLogs(0),
+      ]);
+    } else if (tab === "users") {
       void loadUsers(usersQuery, usersOffset);
     } else if (tab === "cdcEvents") {
       void loadCdcEvents(0);
@@ -669,12 +1026,25 @@ export const AdminPage = () => {
     [overview],
   );
   const outboxStatus = useMemo(() => Object.entries(overview?.outbox_status || {}), [overview]);
+  const hasContentPrev = contentOffset > 0;
+  const hasContentNext = contentLastCount >= contentLimit;
+  const hasOverridesPrev = overridesOffset > 0;
+  const hasOverridesNext = overridesLastCount >= overridesLimit;
+  const hasMissingPrev = missingOffset > 0;
+  const hasMissingNext = missingLastCount >= missingLimit;
+  const hasContentAuditPrev = contentAuditOffset > 0;
+  const hasContentAuditNext = contentAuditLastCount >= contentAuditLimit;
   const hasUsersPrev = usersOffset > 0;
   const hasUsersNext = usersOffset + usersLimit < usersTotal;
   const hasCdcPrev = cdcOffset > 0;
   const hasCdcNext = cdcLastCount >= cdcLimit;
   const hasReportsPrev = reportsOffset > 0;
   const hasReportsNext = reportsLastCount >= reportsLimit;
+  const selectedContentTarget = selectedContent
+    ? `${CONTENT_MEDIA_LABEL[selectedContent.media_type]} / tmdb:${selectedContent.tmdb_id}${
+        selectedContent.media_type === "season" ? ` / season:${selectedContent.season_number}` : ""
+      }`
+    : "-";
   const dailyItems = dailyPayload?.items || dailyPayload?.completed_items || [];
 
   if (!token) {
@@ -758,6 +1128,7 @@ export const AdminPage = () => {
 
         <nav className="admin-tab-row">
           <button type="button" className={`admin-tab-btn ${tab === "overview" ? "active" : ""}`} onClick={() => setTab("overview")}>Overview</button>
+          <button type="button" className={`admin-tab-btn ${tab === "contents" ? "active" : ""}`} onClick={() => setTab("contents")}>Contents</button>
           <button type="button" className={`admin-tab-btn ${tab === "users" ? "active" : ""}`} onClick={() => setTab("users")}>Users</button>
           <button type="button" className={`admin-tab-btn ${tab === "cdcEvents" ? "active" : ""}`} onClick={() => setTab("cdcEvents")}>CDC Events</button>
           <button type="button" className={`admin-tab-btn ${tab === "reports" ? "active" : ""}`} onClick={() => setTab("reports")}>Reports</button>
@@ -857,6 +1228,521 @@ export const AdminPage = () => {
                     <dd>{overview?.admin_restricted ? "ADMIN_EMAILS enabled" : "not configured"}</dd>
                   </div>
                 </dl>
+              </article>
+            </div>
+          </section>
+        ) : null}
+
+        {tab === "contents" ? (
+          <section className="admin-section admin-two-col">
+            <article className="admin-card">
+              <h2>Content Search</h2>
+              <div className="admin-field">
+                <label>Search</label>
+                <input
+                  value={contentQ}
+                  onChange={(event) => setContentQ(event.target.value)}
+                  placeholder="title or tmdb id"
+                />
+              </div>
+              <div className="admin-field">
+                <label>Media Type</label>
+                <select
+                  value={contentMediaType}
+                  onChange={(event) => setContentMediaType(event.target.value)}
+                >
+                  <option value="">All</option>
+                  <option value="movie">movie</option>
+                  <option value="tv">tv</option>
+                  <option value="season">season</option>
+                </select>
+              </div>
+              <div className="admin-field">
+                <label>Has Override</label>
+                <select
+                  value={contentHasOverride}
+                  onChange={(event) => setContentHasOverride(event.target.value)}
+                >
+                  <option value="">All</option>
+                  <option value="true">only with override</option>
+                  <option value="false">only without override</option>
+                </select>
+              </div>
+              <label className="admin-checkbox">
+                <input
+                  type="checkbox"
+                  checked={contentMissingFinalDate}
+                  onChange={(event) => setContentMissingFinalDate(event.target.checked)}
+                />
+                missing final completed date only
+              </label>
+
+              <div className="admin-inline-actions">
+                <button
+                  type="button"
+                  className="admin-link-btn"
+                  disabled={contentsLoading}
+                  onClick={() =>
+                    void Promise.all([
+                      loadContents(0),
+                      loadContentOverrides(0),
+                      loadMissingContents(0),
+                      loadContentAuditLogs(0),
+                    ])
+                  }
+                >
+                  Search
+                </button>
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={contentsLoading}
+                  onClick={() => {
+                    setContentQ("");
+                    setContentMediaType("");
+                    setContentHasOverride("");
+                    setContentMissingFinalDate(false);
+                    setContentOffset(0);
+                    setContentLastCount(0);
+                    setContents([]);
+                    setSelectedContent(null);
+                    setContentOverrides([]);
+                    setOverridesOffset(0);
+                    setOverridesLastCount(0);
+                    setMissingContents([]);
+                    setMissingOffset(0);
+                    setMissingLastCount(0);
+                    setContentAuditActionType("");
+                    setContentAuditLogs([]);
+                    setContentAuditOffset(0);
+                    setContentAuditLastCount(0);
+                  }}
+                >
+                  Reset
+                </button>
+              </div>
+
+              <div className="admin-inline-actions spread">
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={!hasContentPrev || contentsLoading}
+                  onClick={() => void loadContents(Math.max(0, contentOffset - contentLimit))}
+                >
+                  Prev
+                </button>
+                <span className="admin-muted">offset: {contentOffset}</span>
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={!hasContentNext || contentsLoading}
+                  onClick={() => void loadContents(contentOffset + contentLimit)}
+                >
+                  Next
+                </button>
+              </div>
+
+              <div className="admin-list">
+                {contents.map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    className={`admin-user-item ${selectedContent?.key === item.key ? "active" : ""}`}
+                    onClick={() => setSelectedContent(item)}
+                  >
+                    <div>
+                      <strong>{item.title || `TMDB ${item.tmdb_id}`}</strong>
+                      <p className="admin-muted">
+                        {CONTENT_MEDIA_LABEL[item.media_type]} / tmdb:{item.tmdb_id}
+                        {item.media_type === "season" ? ` / season:${item.season_number}` : ""}
+                      </p>
+                      <p className="admin-muted">
+                        effective: {item.effective.final_state || "-"} /{" "}
+                        {item.effective.final_completed_at || "-"}
+                      </p>
+                    </div>
+                    <div className="admin-user-meta">
+                      <span>{formatDate(item.updated_at)}</span>
+                      {item.override ? <span className="admin-pill">override</span> : null}
+                    </div>
+                  </button>
+                ))}
+                {contentsLoading ? <p className="admin-muted">Loading...</p> : null}
+                {!contentsLoading && contents.length === 0 ? (
+                  <p className="admin-muted">No content found.</p>
+                ) : null}
+              </div>
+            </article>
+
+            <div className="admin-stack">
+              <article className="admin-card">
+                <div className="admin-inline-actions spread">
+                  <h2>Content Details</h2>
+                  <button
+                    type="button"
+                    className="admin-link-btn secondary"
+                    disabled={!selectedContent || overrideSaving}
+                    onClick={() => {
+                      if (!selectedContent) return;
+                      void loadContentLookup(selectedContent);
+                    }}
+                  >
+                    Refresh
+                  </button>
+                </div>
+                {!selectedContent ? (
+                  <p className="admin-muted">Select content from the search results.</p>
+                ) : (
+                  <>
+                    <div className="admin-detail-header">
+                      <div>
+                        <strong>{selectedContent.title || `TMDB ${selectedContent.tmdb_id}`}</strong>
+                        <p className="admin-muted">{selectedContentTarget}</p>
+                        <p className="admin-muted">cache updated: {formatDate(selectedContent.updated_at)}</p>
+                      </div>
+                      {selectedContent.override ? (
+                        <span className="admin-pill">override active</span>
+                      ) : (
+                        <span className="admin-pill">no override</span>
+                      )}
+                    </div>
+
+                    <dl className="admin-kv compact">
+                      <div>
+                        <dt>Base status</dt>
+                        <dd>{selectedContent.base.status_raw || "-"}</dd>
+                      </div>
+                      <div>
+                        <dt>Effective status</dt>
+                        <dd>{selectedContent.effective.status_raw || "-"}</dd>
+                      </div>
+                      <div>
+                        <dt>Base final</dt>
+                        <dd>{selectedContent.base.final_state || "-"}</dd>
+                      </div>
+                      <div>
+                        <dt>Effective final</dt>
+                        <dd>{selectedContent.effective.final_state || "-"}</dd>
+                      </div>
+                      <div>
+                        <dt>Base final date</dt>
+                        <dd>{selectedContent.base.final_completed_at || "-"}</dd>
+                      </div>
+                      <div>
+                        <dt>Effective final date</dt>
+                        <dd>{selectedContent.effective.final_completed_at || "-"}</dd>
+                      </div>
+                      <div>
+                        <dt>Base release date</dt>
+                        <dd>{selectedContent.base.release_date || "-"}</dd>
+                      </div>
+                      <div>
+                        <dt>Effective release date</dt>
+                        <dd>{selectedContent.effective.release_date || "-"}</dd>
+                      </div>
+                      <div>
+                        <dt>Base next air date</dt>
+                        <dd>{selectedContent.base.next_air_date || "-"}</dd>
+                      </div>
+                      <div>
+                        <dt>Effective next air date</dt>
+                        <dd>{selectedContent.effective.next_air_date || "-"}</dd>
+                      </div>
+                    </dl>
+
+                    <hr className="admin-divider" />
+
+                    <h3>Override Editor</h3>
+                    <div className="admin-field">
+                      <label>override status_raw</label>
+                      <input
+                        value={overrideStatusRaw}
+                        onChange={(event) => setOverrideStatusRaw(event.target.value)}
+                        placeholder="Released, Ended, Returning Series..."
+                      />
+                    </div>
+                    <div className="admin-field">
+                      <label>override final_state</label>
+                      <input
+                        value={overrideFinalState}
+                        onChange={(event) => setOverrideFinalState(event.target.value)}
+                        placeholder="Released, Ended, Canceled, binge_ready..."
+                      />
+                    </div>
+                    <div className="admin-form-grid">
+                      <div className="admin-field">
+                        <label>override release_date</label>
+                        <input
+                          type="date"
+                          value={overrideReleaseDate}
+                          onChange={(event) => setOverrideReleaseDate(event.target.value)}
+                        />
+                      </div>
+                      <div className="admin-field">
+                        <label>override next_air_date</label>
+                        <input
+                          type="date"
+                          value={overrideNextAirDate}
+                          onChange={(event) => setOverrideNextAirDate(event.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <div className="admin-field">
+                      <label>override final_completed_at</label>
+                      <input
+                        type="date"
+                        value={overrideFinalCompletedAt}
+                        onChange={(event) => setOverrideFinalCompletedAt(event.target.value)}
+                      />
+                    </div>
+                    <div className="admin-field">
+                      <label>reason</label>
+                      <input
+                        value={overrideReason}
+                        onChange={(event) => setOverrideReason(event.target.value)}
+                        placeholder="optional"
+                      />
+                    </div>
+                    <div className="admin-inline-actions">
+                      <button
+                        type="button"
+                        className="admin-link-btn"
+                        disabled={overrideSaving}
+                        onClick={() => void saveContentOverride()}
+                      >
+                        Save Override
+                      </button>
+                      <button
+                        type="button"
+                        className="admin-link-btn danger"
+                        disabled={overrideSaving || !selectedContent.override}
+                        onClick={() => void deleteContentOverride()}
+                      >
+                        Delete Override
+                      </button>
+                      <button
+                        type="button"
+                        className="admin-link-btn secondary"
+                        disabled={overrideSaving}
+                        onClick={() => {
+                          setOverrideStatusRaw(selectedContent.override?.status_raw || "");
+                          setOverrideReleaseDate(toDateInput(selectedContent.override?.release_date));
+                          setOverrideNextAirDate(toDateInput(selectedContent.override?.next_air_date));
+                          setOverrideFinalState(selectedContent.override?.final_state || "");
+                          setOverrideFinalCompletedAt(
+                            toDateInput(selectedContent.override?.final_completed_at),
+                          );
+                          setOverrideReason(selectedContent.override?.reason || "");
+                        }}
+                      >
+                        Reset Form
+                      </button>
+                    </div>
+                  </>
+                )}
+              </article>
+
+              <article className="admin-card">
+                <div className="admin-inline-actions spread">
+                  <h2>Missing Final Date</h2>
+                  <button
+                    type="button"
+                    className="admin-link-btn secondary"
+                    disabled={missingLoading}
+                    onClick={() => void loadMissingContents(0)}
+                  >
+                    Refresh
+                  </button>
+                </div>
+                <div className="admin-list compact">
+                  {missingContents.map((item) => (
+                    <div key={item.key} className="admin-list-item top">
+                      <div>
+                        <strong>{item.title || `TMDB ${item.tmdb_id}`}</strong>
+                        <p className="admin-muted">
+                          {CONTENT_MEDIA_LABEL[item.media_type]} / tmdb:{item.tmdb_id}
+                          {item.media_type === "season" ? ` / season:${item.season_number}` : ""}
+                        </p>
+                        <p className="admin-muted">
+                          effective final: {item.effective.final_state || "-"} / missing date
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className="admin-link-btn secondary"
+                        onClick={() => void loadContentLookup(item)}
+                      >
+                        Open
+                      </button>
+                    </div>
+                  ))}
+                  {missingLoading ? <p className="admin-muted">Loading...</p> : null}
+                  {!missingLoading && missingContents.length === 0 ? (
+                    <p className="admin-muted">No missing items.</p>
+                  ) : null}
+                </div>
+                <div className="admin-inline-actions spread">
+                  <button
+                    type="button"
+                    className="admin-link-btn secondary"
+                    disabled={!hasMissingPrev || missingLoading}
+                    onClick={() => void loadMissingContents(Math.max(0, missingOffset - missingLimit))}
+                  >
+                    Prev
+                  </button>
+                  <span className="admin-muted">offset: {missingOffset}</span>
+                  <button
+                    type="button"
+                    className="admin-link-btn secondary"
+                    disabled={!hasMissingNext || missingLoading}
+                    onClick={() => void loadMissingContents(missingOffset + missingLimit)}
+                  >
+                    Next
+                  </button>
+                </div>
+              </article>
+
+              <article className="admin-card">
+                <div className="admin-inline-actions spread">
+                  <h2>Override History</h2>
+                  <button
+                    type="button"
+                    className="admin-link-btn secondary"
+                    disabled={overridesLoading}
+                    onClick={() => void loadContentOverrides(0)}
+                  >
+                    Refresh
+                  </button>
+                </div>
+                <div className="admin-list compact">
+                  {contentOverrides.map((entry) => (
+                    <div key={`${entry.media_type}-${entry.tmdb_id}-${entry.season_number}`} className="admin-list-item top">
+                      <div>
+                        <strong>{entry.title || `TMDB ${entry.tmdb_id}`}</strong>
+                        <p className="admin-muted">
+                          {CONTENT_MEDIA_LABEL[entry.media_type]} / tmdb:{entry.tmdb_id}
+                          {entry.media_type === "season" ? ` / season:${entry.season_number}` : ""}
+                        </p>
+                        <p className="admin-muted">
+                          override final: {entry.override?.final_state || "-"} /{" "}
+                          {entry.override?.final_completed_at || "-"}
+                        </p>
+                        <p className="admin-muted">
+                          reason: {entry.override?.reason || "-"} / by: {entry.override?.admin_email || "-"}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className="admin-link-btn secondary"
+                        onClick={() =>
+                          void loadContentLookup({
+                            media_type: entry.media_type,
+                            tmdb_id: entry.tmdb_id,
+                            season_number: entry.season_number,
+                          })
+                        }
+                      >
+                        Open
+                      </button>
+                    </div>
+                  ))}
+                  {overridesLoading ? <p className="admin-muted">Loading...</p> : null}
+                  {!overridesLoading && contentOverrides.length === 0 ? (
+                    <p className="admin-muted">No override history.</p>
+                  ) : null}
+                </div>
+                <div className="admin-inline-actions spread">
+                  <button
+                    type="button"
+                    className="admin-link-btn secondary"
+                    disabled={!hasOverridesPrev || overridesLoading}
+                    onClick={() =>
+                      void loadContentOverrides(Math.max(0, overridesOffset - overridesLimit))
+                    }
+                  >
+                    Prev
+                  </button>
+                  <span className="admin-muted">offset: {overridesOffset}</span>
+                  <button
+                    type="button"
+                    className="admin-link-btn secondary"
+                    disabled={!hasOverridesNext || overridesLoading}
+                    onClick={() => void loadContentOverrides(overridesOffset + overridesLimit)}
+                  >
+                    Next
+                  </button>
+                </div>
+              </article>
+
+              <article className="admin-card">
+                <div className="admin-inline-actions spread">
+                  <h2>Content Audit Logs</h2>
+                  <button
+                    type="button"
+                    className="admin-link-btn secondary"
+                    disabled={contentAuditLoading}
+                    onClick={() => void loadContentAuditLogs(0)}
+                  >
+                    Refresh
+                  </button>
+                </div>
+                <div className="admin-field">
+                  <label>Action Type</label>
+                  <select
+                    value={contentAuditActionType}
+                    onChange={(event) => setContentAuditActionType(event.target.value)}
+                  >
+                    <option value="">All</option>
+                    <option value="OVERRIDE_UPSERT">OVERRIDE_UPSERT</option>
+                    <option value="OVERRIDE_DELETE">OVERRIDE_DELETE</option>
+                  </select>
+                </div>
+                <div className="admin-list compact">
+                  {contentAuditLogs.map((log) => (
+                    <div key={log.id} className="admin-list-item top">
+                      <div>
+                        <strong>{log.title || `TMDB ${log.tmdb_id}`}</strong>
+                        <p className="admin-muted">
+                          {log.action_type} / {CONTENT_MEDIA_LABEL[log.media_type]} / tmdb:{log.tmdb_id}
+                          {log.media_type === "season" ? ` / season:${log.season_number}` : ""}
+                        </p>
+                        <p className="admin-muted">
+                          effective final: {log.effective_final_state || "-"} /{" "}
+                          {log.effective_final_completed_at || "-"}
+                        </p>
+                        <p className="admin-muted">
+                          by: {log.admin_email || "-"} / reason: {log.reason || "-"}
+                        </p>
+                      </div>
+                      <span className="admin-muted">{formatDate(log.created_at)}</span>
+                    </div>
+                  ))}
+                  {contentAuditLoading ? <p className="admin-muted">Loading...</p> : null}
+                  {!contentAuditLoading && contentAuditLogs.length === 0 ? (
+                    <p className="admin-muted">No audit logs.</p>
+                  ) : null}
+                </div>
+                <div className="admin-inline-actions spread">
+                  <button
+                    type="button"
+                    className="admin-link-btn secondary"
+                    disabled={!hasContentAuditPrev || contentAuditLoading}
+                    onClick={() =>
+                      void loadContentAuditLogs(Math.max(0, contentAuditOffset - contentAuditLimit))
+                    }
+                  >
+                    Prev
+                  </button>
+                  <span className="admin-muted">offset: {contentAuditOffset}</span>
+                  <button
+                    type="button"
+                    className="admin-link-btn secondary"
+                    disabled={!hasContentAuditNext || contentAuditLoading}
+                    onClick={() => void loadContentAuditLogs(contentAuditOffset + contentAuditLimit)}
+                  >
+                    Next
+                  </button>
+                </div>
               </article>
             </div>
           </section>

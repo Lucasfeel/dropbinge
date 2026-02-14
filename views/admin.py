@@ -144,6 +144,280 @@ def _record_admin_job_report(conn, job_name, status, report_data):
         cursor.close()
 
 
+_ALLOWED_MEDIA_TYPES = {"movie", "tv", "season"}
+_ALLOWED_CONTENT_ACTION_TYPES = {
+    "OVERRIDE_UPSERT",
+    "OVERRIDE_DELETE",
+}
+
+_ADMIN_CONTENT_SELECT_SQL = """
+    SELECT
+        c.media_type,
+        c.tmdb_id,
+        c.season_number,
+        c.status_raw,
+        c.release_date,
+        c.first_air_date,
+        c.last_air_date,
+        c.next_air_date,
+        c.season_air_date,
+        c.season_last_episode_air_date,
+        c.season_count,
+        c.episode_count,
+        c.last_episode_date,
+        c.next_episode_date,
+        c.final_state,
+        c.final_completed_at,
+        c.payload,
+        c.fetched_at,
+        c.expires_at,
+        c.updated_at,
+        o.id AS override_id,
+        o.override_status_raw,
+        o.override_release_date,
+        o.override_next_air_date,
+        o.override_final_state,
+        o.override_final_completed_at,
+        o.reason AS override_reason,
+        o.admin_email AS override_admin_email,
+        o.created_at AS override_created_at,
+        o.updated_at AS override_updated_at
+    FROM tmdb_cache c
+    LEFT JOIN admin_tmdb_overrides o
+      ON o.media_type = c.media_type
+     AND o.tmdb_id = c.tmdb_id
+     AND o.season_number = c.season_number
+"""
+
+
+def _normalize_media_type(raw_value):
+    normalized = (raw_value or "").strip().lower()
+    if normalized in _ALLOWED_MEDIA_TYPES:
+        return normalized
+    return None
+
+
+def _parse_tmdb_id(raw_value):
+    try:
+        parsed = int(raw_value)
+    except (TypeError, ValueError):
+        return None
+    if parsed <= 0:
+        return None
+    return parsed
+
+
+def _resolve_season_number(media_type, raw_value):
+    if media_type == "season":
+        try:
+            season_number = int(raw_value)
+        except (TypeError, ValueError):
+            return None
+        if season_number < 0:
+            return None
+        return season_number
+
+    if raw_value is None or raw_value == "":
+        return -1
+    try:
+        season_number = int(raw_value)
+    except (TypeError, ValueError):
+        return None
+    if season_number != -1:
+        return None
+    return season_number
+
+
+def _iso(value):
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return value
+
+
+def _as_json_object(value):
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = parse_report_data(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _content_title_from_cache_row(media_type, tmdb_id, season_number, payload):
+    payload_data = _as_json_object(payload)
+    if media_type == "movie":
+        return payload_data.get("title") or f"TMDB Movie {tmdb_id}"
+    if media_type == "tv":
+        return payload_data.get("name") or payload_data.get("original_name") or f"TMDB TV {tmdb_id}"
+    if media_type == "season":
+        season_name = payload_data.get("name")
+        if season_name:
+            return season_name
+        show_name = payload_data.get("show_name") or payload_data.get("series_name")
+        if show_name and season_number is not None:
+            return f"{show_name} Season {season_number}"
+        if season_number is not None:
+            return f"Season {season_number}"
+        return f"TMDB Season {tmdb_id}"
+    return f"TMDB {tmdb_id}"
+
+
+def _serialize_tmdb_override(row):
+    if not row or row.get("override_id") is None:
+        return None
+    return {
+        "id": row.get("override_id"),
+        "status_raw": row.get("override_status_raw"),
+        "release_date": _iso(row.get("override_release_date")),
+        "next_air_date": _iso(row.get("override_next_air_date")),
+        "final_state": row.get("override_final_state"),
+        "final_completed_at": _iso(row.get("override_final_completed_at")),
+        "reason": row.get("override_reason"),
+        "admin_email": row.get("override_admin_email"),
+        "created_at": _iso(row.get("override_created_at")),
+        "updated_at": _iso(row.get("override_updated_at")),
+    }
+
+
+def _serialize_admin_content(row):
+    payload = _as_json_object(row.get("payload"))
+    media_type = row.get("media_type")
+    tmdb_id = row.get("tmdb_id")
+    season_number = row.get("season_number")
+
+    base = {
+        "status_raw": row.get("status_raw"),
+        "release_date": _iso(row.get("release_date")),
+        "first_air_date": _iso(row.get("first_air_date")),
+        "last_air_date": _iso(row.get("last_air_date")),
+        "next_air_date": _iso(row.get("next_air_date")),
+        "season_air_date": _iso(row.get("season_air_date")),
+        "season_last_episode_air_date": _iso(row.get("season_last_episode_air_date")),
+        "season_count": row.get("season_count"),
+        "episode_count": row.get("episode_count"),
+        "last_episode_date": _iso(row.get("last_episode_date")),
+        "next_episode_date": _iso(row.get("next_episode_date")),
+        "final_state": row.get("final_state"),
+        "final_completed_at": _iso(row.get("final_completed_at")),
+    }
+    override = _serialize_tmdb_override(row)
+    effective = {
+        "status_raw": (override or {}).get("status_raw") or base["status_raw"],
+        "release_date": (override or {}).get("release_date") or base["release_date"],
+        "next_air_date": (override or {}).get("next_air_date") or base["next_air_date"],
+        "final_state": (override or {}).get("final_state") or base["final_state"],
+        "final_completed_at": (override or {}).get("final_completed_at")
+        or base["final_completed_at"],
+    }
+    effective["missing_final_completed_at"] = bool(
+        effective["final_state"] and not effective["final_completed_at"]
+    )
+
+    return {
+        "key": f"{media_type}:{tmdb_id}:{season_number}",
+        "media_type": media_type,
+        "tmdb_id": tmdb_id,
+        "season_number": season_number,
+        "title": _content_title_from_cache_row(media_type, tmdb_id, season_number, payload),
+        "poster_path": payload.get("poster_path"),
+        "backdrop_path": payload.get("backdrop_path"),
+        "base": base,
+        "override": override,
+        "effective": effective,
+        "payload": payload,
+        "fetched_at": _iso(row.get("fetched_at")),
+        "expires_at": _iso(row.get("expires_at")),
+        "updated_at": _iso(row.get("updated_at")),
+    }
+
+
+def _record_content_action_log(
+    conn,
+    *,
+    action_type,
+    media_type,
+    tmdb_id,
+    season_number,
+    reason=None,
+    admin_email=None,
+    payload_data=None,
+):
+    cursor = get_cursor(conn)
+    try:
+        cursor.execute(
+            """
+            INSERT INTO admin_content_action_logs (
+                action_type,
+                media_type,
+                tmdb_id,
+                season_number,
+                reason,
+                admin_email,
+                payload
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s);
+            """,
+            (
+                action_type,
+                media_type,
+                tmdb_id,
+                season_number,
+                reason,
+                admin_email,
+                Json(payload_data or {}),
+            ),
+        )
+    finally:
+        cursor.close()
+
+
+def _fetch_admin_content_row(conn, media_type, tmdb_id, season_number):
+    cursor = get_cursor(conn)
+    try:
+        cursor.execute(
+            f"""
+            {_ADMIN_CONTENT_SELECT_SQL}
+            WHERE c.media_type = %s
+              AND c.tmdb_id = %s
+              AND c.season_number = %s
+            LIMIT 1;
+            """,
+            (media_type, tmdb_id, season_number),
+        )
+        return cursor.fetchone()
+    finally:
+        cursor.close()
+
+
+def _resolve_optional_text(body, key, existing_value):
+    if key not in body:
+        return existing_value
+    raw_value = body.get(key)
+    if raw_value is None:
+        return None
+    value = str(raw_value).strip()
+    return value or None
+
+
+def _resolve_optional_date(body, key, existing_value):
+    if key not in body:
+        return existing_value, None
+    raw_value = body.get(key)
+    if raw_value in (None, ""):
+        return None, None
+    parsed = _parse_date_param(raw_value)
+    if parsed is None:
+        return existing_value, f"{key} must be YYYY-MM-DD"
+    return parsed, None
+
+
 @admin_bp.get("/overview")
 @require_admin
 def admin_overview(payload):
@@ -383,6 +657,584 @@ def admin_delete_follow(payload, follow_id):
         return jsonify({"error": "Follow not found"}), 404
     db.commit()
     return jsonify({"deleted": deleted})
+
+
+@admin_bp.get("/contents/search")
+@require_admin
+def admin_contents_search(payload):
+    _ = payload
+    limit = _bounded_int(request.args.get("limit"), default=50, minimum=1, maximum=200)
+    offset = _bounded_int(request.args.get("offset"), default=0, minimum=0, maximum=100000)
+
+    q = (request.args.get("q") or "").strip()
+    media_type_raw = (request.args.get("media_type") or "").strip()
+    final_state = (request.args.get("final_state") or "").strip()
+    has_override_raw = request.args.get("has_override")
+    missing_final_date = _parse_bool_param(request.args.get("missing_final_date"), default=False)
+
+    media_type = None
+    if media_type_raw and media_type_raw.lower() != "all":
+        media_type = _normalize_media_type(media_type_raw)
+        if media_type is None:
+            return jsonify({"error": "media_type must be movie, tv, or season"}), 400
+
+    has_override = None
+    if has_override_raw not in (None, ""):
+        lowered = str(has_override_raw).strip().lower()
+        if lowered in ("1", "true", "yes", "on"):
+            has_override = True
+        elif lowered in ("0", "false", "no", "off"):
+            has_override = False
+        else:
+            return jsonify({"error": "has_override must be boolean"}), 400
+
+    sql = f"""
+        {_ADMIN_CONTENT_SELECT_SQL}
+        WHERE 1=1
+    """
+    params = []
+
+    if media_type:
+        sql += " AND c.media_type = %s"
+        params.append(media_type)
+    if has_override is True:
+        sql += " AND o.id IS NOT NULL"
+    elif has_override is False:
+        sql += " AND o.id IS NULL"
+    if final_state:
+        sql += " AND COALESCE(NULLIF(o.override_final_state, ''), c.final_state) = %s"
+        params.append(final_state)
+    if missing_final_date:
+        sql += """
+            AND COALESCE(NULLIF(o.override_final_state, ''), c.final_state) IS NOT NULL
+            AND COALESCE(o.override_final_completed_at, c.final_completed_at) IS NULL
+        """
+    if q:
+        sql += """
+            AND (
+                COALESCE(c.payload->>'title', c.payload->>'name', '') ILIKE %s
+                OR CAST(c.tmdb_id AS TEXT) = %s
+            )
+        """
+        params.extend([f"%{q}%", q])
+
+    sql += """
+        ORDER BY COALESCE(o.updated_at, c.updated_at) DESC, c.tmdb_id DESC, c.season_number DESC
+        LIMIT %s OFFSET %s
+    """
+    params.extend([limit, offset])
+
+    db = get_db()
+    cursor = get_cursor(db)
+    cursor.execute(sql, tuple(params))
+    items = [_serialize_admin_content(row) for row in cursor.fetchall()]
+    cursor.close()
+
+    return jsonify(
+        {
+            "success": True,
+            "items": items,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
+
+
+@admin_bp.get("/contents/lookup")
+@require_admin
+def admin_content_lookup(payload):
+    _ = payload
+    media_type = _normalize_media_type(request.args.get("media_type"))
+    tmdb_id = _parse_tmdb_id(request.args.get("tmdb_id"))
+    season_number = _resolve_season_number(media_type, request.args.get("season_number"))
+
+    if media_type is None:
+        return jsonify({"error": "media_type must be movie, tv, or season"}), 400
+    if tmdb_id is None:
+        return jsonify({"error": "tmdb_id must be a positive integer"}), 400
+    if season_number is None:
+        return jsonify({"error": "season_number is invalid for media_type"}), 400
+
+    db = get_db()
+    row = _fetch_admin_content_row(db, media_type, tmdb_id, season_number)
+    if not row:
+        return jsonify({"error": "Content not found"}), 404
+
+    content = _serialize_admin_content(row)
+    return jsonify({"success": True, "content": content})
+
+
+@admin_bp.get("/contents/overrides")
+@require_admin
+def admin_contents_overrides(payload):
+    _ = payload
+    limit = _bounded_int(request.args.get("limit"), default=50, minimum=1, maximum=200)
+    offset = _bounded_int(request.args.get("offset"), default=0, minimum=0, maximum=100000)
+    q = (request.args.get("q") or "").strip()
+    media_type_raw = (request.args.get("media_type") or "").strip()
+
+    media_type = None
+    if media_type_raw and media_type_raw.lower() != "all":
+        media_type = _normalize_media_type(media_type_raw)
+        if media_type is None:
+            return jsonify({"error": "media_type must be movie, tv, or season"}), 400
+
+    sql = """
+        SELECT
+            o.id AS override_id,
+            o.media_type,
+            o.tmdb_id,
+            o.season_number,
+            o.override_status_raw,
+            o.override_release_date,
+            o.override_next_air_date,
+            o.override_final_state,
+            o.override_final_completed_at,
+            o.reason AS override_reason,
+            o.admin_email AS override_admin_email,
+            o.created_at AS override_created_at,
+            o.updated_at AS override_updated_at,
+            c.payload,
+            c.status_raw,
+            c.final_state,
+            c.final_completed_at
+        FROM admin_tmdb_overrides o
+        LEFT JOIN tmdb_cache c
+          ON c.media_type = o.media_type
+         AND c.tmdb_id = o.tmdb_id
+         AND c.season_number = o.season_number
+        WHERE 1=1
+    """
+    params = []
+    if media_type:
+        sql += " AND o.media_type = %s"
+        params.append(media_type)
+    if q:
+        sql += """
+            AND (
+                COALESCE(c.payload->>'title', c.payload->>'name', '') ILIKE %s
+                OR CAST(o.tmdb_id AS TEXT) = %s
+            )
+        """
+        params.extend([f"%{q}%", q])
+    sql += " ORDER BY o.updated_at DESC, o.id DESC LIMIT %s OFFSET %s"
+    params.extend([limit, offset])
+
+    db = get_db()
+    cursor = get_cursor(db)
+    cursor.execute(sql, tuple(params))
+
+    items = []
+    for row in cursor.fetchall():
+        items.append(
+            {
+                "media_type": row.get("media_type"),
+                "tmdb_id": row.get("tmdb_id"),
+                "season_number": row.get("season_number"),
+                "title": _content_title_from_cache_row(
+                    row.get("media_type"),
+                    row.get("tmdb_id"),
+                    row.get("season_number"),
+                    row.get("payload"),
+                ),
+                "override": _serialize_tmdb_override(row),
+                "base": {
+                    "status_raw": row.get("status_raw"),
+                    "final_state": row.get("final_state"),
+                    "final_completed_at": _iso(row.get("final_completed_at")),
+                },
+            }
+        )
+    cursor.close()
+
+    return jsonify({"success": True, "items": items, "limit": limit, "offset": offset})
+
+
+@admin_bp.post("/contents/override")
+@require_admin
+def admin_upsert_content_override(payload):
+    body = request.get_json(silent=True) or {}
+
+    media_type = _normalize_media_type(body.get("media_type"))
+    tmdb_id = _parse_tmdb_id(body.get("tmdb_id"))
+    season_number = _resolve_season_number(media_type, body.get("season_number"))
+
+    if media_type is None:
+        return jsonify({"error": "media_type must be movie, tv, or season"}), 400
+    if tmdb_id is None:
+        return jsonify({"error": "tmdb_id must be a positive integer"}), 400
+    if season_number is None:
+        return jsonify({"error": "season_number is invalid for media_type"}), 400
+
+    db = get_db()
+    if not _fetch_admin_content_row(db, media_type, tmdb_id, season_number):
+        return jsonify({"error": "Content not found"}), 404
+
+    lookup_cursor = get_cursor(db)
+    try:
+        lookup_cursor.execute(
+            """
+            SELECT
+                override_status_raw,
+                override_release_date,
+                override_next_air_date,
+                override_final_state,
+                override_final_completed_at,
+                reason
+            FROM admin_tmdb_overrides
+            WHERE media_type = %s AND tmdb_id = %s AND season_number = %s
+            LIMIT 1;
+            """,
+            (media_type, tmdb_id, season_number),
+        )
+        existing = lookup_cursor.fetchone() or {}
+    finally:
+        lookup_cursor.close()
+
+    override_status_raw = _resolve_optional_text(
+        body,
+        "override_status_raw",
+        existing.get("override_status_raw"),
+    )
+    override_final_state = _resolve_optional_text(
+        body,
+        "override_final_state",
+        existing.get("override_final_state"),
+    )
+    reason = _resolve_optional_text(body, "reason", existing.get("reason"))
+
+    override_release_date, error_message = _resolve_optional_date(
+        body,
+        "override_release_date",
+        existing.get("override_release_date"),
+    )
+    if error_message:
+        return jsonify({"error": error_message}), 400
+
+    override_next_air_date, error_message = _resolve_optional_date(
+        body,
+        "override_next_air_date",
+        existing.get("override_next_air_date"),
+    )
+    if error_message:
+        return jsonify({"error": error_message}), 400
+
+    override_final_completed_at, error_message = _resolve_optional_date(
+        body,
+        "override_final_completed_at",
+        existing.get("override_final_completed_at"),
+    )
+    if error_message:
+        return jsonify({"error": error_message}), 400
+
+    upsert_cursor = get_cursor(db)
+    try:
+        upsert_cursor.execute(
+            """
+            INSERT INTO admin_tmdb_overrides (
+                media_type,
+                tmdb_id,
+                season_number,
+                override_status_raw,
+                override_release_date,
+                override_next_air_date,
+                override_final_state,
+                override_final_completed_at,
+                reason,
+                admin_email,
+                created_at,
+                updated_at
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW()
+            )
+            ON CONFLICT (media_type, tmdb_id, season_number)
+            DO UPDATE SET
+                override_status_raw = EXCLUDED.override_status_raw,
+                override_release_date = EXCLUDED.override_release_date,
+                override_next_air_date = EXCLUDED.override_next_air_date,
+                override_final_state = EXCLUDED.override_final_state,
+                override_final_completed_at = EXCLUDED.override_final_completed_at,
+                reason = EXCLUDED.reason,
+                admin_email = EXCLUDED.admin_email,
+                updated_at = NOW()
+            RETURNING
+                id AS override_id,
+                media_type,
+                tmdb_id,
+                season_number,
+                override_status_raw,
+                override_release_date,
+                override_next_air_date,
+                override_final_state,
+                override_final_completed_at,
+                reason AS override_reason,
+                admin_email AS override_admin_email,
+                created_at AS override_created_at,
+                updated_at AS override_updated_at;
+            """,
+            (
+                media_type,
+                tmdb_id,
+                season_number,
+                override_status_raw,
+                override_release_date,
+                override_next_air_date,
+                override_final_state,
+                override_final_completed_at,
+                reason,
+                payload.get("email"),
+            ),
+        )
+        override_row = upsert_cursor.fetchone()
+    finally:
+        upsert_cursor.close()
+    override_data = _serialize_tmdb_override(override_row)
+
+    _record_content_action_log(
+        db,
+        action_type="OVERRIDE_UPSERT",
+        media_type=media_type,
+        tmdb_id=tmdb_id,
+        season_number=season_number,
+        reason=reason,
+        admin_email=payload.get("email"),
+        payload_data={"override": override_data},
+    )
+
+    db.commit()
+
+    content_row = _fetch_admin_content_row(db, media_type, tmdb_id, season_number)
+    content = _serialize_admin_content(content_row) if content_row else None
+
+    return jsonify({"success": True, "override": override_data, "content": content})
+
+
+@admin_bp.delete("/contents/override")
+@require_admin
+def admin_delete_content_override(payload):
+    body = request.get_json(silent=True) or {}
+
+    media_type = _normalize_media_type(body.get("media_type"))
+    tmdb_id = _parse_tmdb_id(body.get("tmdb_id"))
+    season_number = _resolve_season_number(media_type, body.get("season_number"))
+    reason = _resolve_optional_text(body, "reason", None)
+
+    if media_type is None:
+        return jsonify({"error": "media_type must be movie, tv, or season"}), 400
+    if tmdb_id is None:
+        return jsonify({"error": "tmdb_id must be a positive integer"}), 400
+    if season_number is None:
+        return jsonify({"error": "season_number is invalid for media_type"}), 400
+
+    db = get_db()
+    cursor = get_cursor(db)
+    try:
+        cursor.execute(
+            """
+            DELETE FROM admin_tmdb_overrides
+            WHERE media_type = %s AND tmdb_id = %s AND season_number = %s
+            RETURNING
+                id AS override_id,
+                media_type,
+                tmdb_id,
+                season_number,
+                override_status_raw,
+                override_release_date,
+                override_next_air_date,
+                override_final_state,
+                override_final_completed_at,
+                reason AS override_reason,
+                admin_email AS override_admin_email,
+                created_at AS override_created_at,
+                updated_at AS override_updated_at;
+            """,
+            (media_type, tmdb_id, season_number),
+        )
+        deleted_override = cursor.fetchone()
+    finally:
+        cursor.close()
+    if not deleted_override:
+        return jsonify({"error": "Override not found"}), 404
+
+    _record_content_action_log(
+        db,
+        action_type="OVERRIDE_DELETE",
+        media_type=media_type,
+        tmdb_id=tmdb_id,
+        season_number=season_number,
+        reason=reason,
+        admin_email=payload.get("email"),
+        payload_data={"deleted_override": _serialize_tmdb_override(deleted_override)},
+    )
+    db.commit()
+
+    content_row = _fetch_admin_content_row(db, media_type, tmdb_id, season_number)
+    content = _serialize_admin_content(content_row) if content_row else None
+
+    return jsonify({"success": True, "content": content})
+
+
+@admin_bp.get("/contents/missing-final-date")
+@require_admin
+def admin_contents_missing_final_date(payload):
+    _ = payload
+    limit = _bounded_int(request.args.get("limit"), default=50, minimum=1, maximum=200)
+    offset = _bounded_int(request.args.get("offset"), default=0, minimum=0, maximum=100000)
+    q = (request.args.get("q") or "").strip()
+    media_type_raw = (request.args.get("media_type") or "").strip()
+
+    media_type = None
+    if media_type_raw and media_type_raw.lower() != "all":
+        media_type = _normalize_media_type(media_type_raw)
+        if media_type is None:
+            return jsonify({"error": "media_type must be movie, tv, or season"}), 400
+
+    sql = f"""
+        {_ADMIN_CONTENT_SELECT_SQL}
+        WHERE COALESCE(NULLIF(o.override_final_state, ''), c.final_state) IS NOT NULL
+          AND COALESCE(o.override_final_completed_at, c.final_completed_at) IS NULL
+    """
+    params = []
+    if media_type:
+        sql += " AND c.media_type = %s"
+        params.append(media_type)
+    if q:
+        sql += """
+            AND (
+                COALESCE(c.payload->>'title', c.payload->>'name', '') ILIKE %s
+                OR CAST(c.tmdb_id AS TEXT) = %s
+            )
+        """
+        params.extend([f"%{q}%", q])
+    sql += """
+        ORDER BY COALESCE(o.updated_at, c.updated_at) DESC, c.tmdb_id DESC, c.season_number DESC
+        LIMIT %s OFFSET %s
+    """
+    params.extend([limit, offset])
+
+    db = get_db()
+    cursor = get_cursor(db)
+    cursor.execute(sql, tuple(params))
+    items = [_serialize_admin_content(row) for row in cursor.fetchall()]
+    cursor.close()
+
+    return jsonify({"success": True, "items": items, "limit": limit, "offset": offset})
+
+
+@admin_bp.get("/audit/logs")
+@require_admin
+def admin_content_audit_logs(payload):
+    _ = payload
+    limit = _bounded_int(request.args.get("limit"), default=50, minimum=1, maximum=200)
+    offset = _bounded_int(request.args.get("offset"), default=0, minimum=0, maximum=100000)
+    q = (request.args.get("q") or "").strip()
+    action_type = (request.args.get("action_type") or "").strip()
+    media_type_raw = (request.args.get("media_type") or "").strip()
+    tmdb_id_raw = (request.args.get("tmdb_id") or "").strip()
+
+    media_type = None
+    if media_type_raw and media_type_raw.lower() != "all":
+        media_type = _normalize_media_type(media_type_raw)
+        if media_type is None:
+            return jsonify({"error": "media_type must be movie, tv, or season"}), 400
+
+    if action_type and action_type not in _ALLOWED_CONTENT_ACTION_TYPES:
+        return jsonify({"error": "unsupported action_type"}), 400
+
+    tmdb_id = None
+    if tmdb_id_raw:
+        tmdb_id = _parse_tmdb_id(tmdb_id_raw)
+        if tmdb_id is None:
+            return jsonify({"error": "tmdb_id must be a positive integer"}), 400
+
+    sql = """
+        SELECT
+            l.id,
+            l.created_at,
+            l.action_type,
+            l.reason,
+            l.admin_email,
+            l.media_type,
+            l.tmdb_id,
+            l.season_number,
+            l.payload,
+            c.payload AS cache_payload,
+            c.status_raw,
+            c.final_state,
+            c.final_completed_at,
+            o.override_final_state,
+            o.override_final_completed_at
+        FROM admin_content_action_logs l
+        LEFT JOIN tmdb_cache c
+          ON c.media_type = l.media_type
+         AND c.tmdb_id = l.tmdb_id
+         AND c.season_number = l.season_number
+        LEFT JOIN admin_tmdb_overrides o
+          ON o.media_type = l.media_type
+         AND o.tmdb_id = l.tmdb_id
+         AND o.season_number = l.season_number
+        WHERE 1=1
+    """
+    params = []
+    if action_type:
+        sql += " AND l.action_type = %s"
+        params.append(action_type)
+    if media_type:
+        sql += " AND l.media_type = %s"
+        params.append(media_type)
+    if tmdb_id is not None:
+        sql += " AND l.tmdb_id = %s"
+        params.append(tmdb_id)
+    if q:
+        sql += """
+            AND (
+                COALESCE(c.payload->>'title', c.payload->>'name', '') ILIKE %s
+                OR CAST(l.tmdb_id AS TEXT) = %s
+            )
+        """
+        params.extend([f"%{q}%", q])
+
+    sql += " ORDER BY l.created_at DESC, l.id DESC LIMIT %s OFFSET %s"
+    params.extend([limit, offset])
+
+    db = get_db()
+    cursor = get_cursor(db)
+    cursor.execute(sql, tuple(params))
+
+    logs = []
+    for row in cursor.fetchall():
+        title = _content_title_from_cache_row(
+            row.get("media_type"),
+            row.get("tmdb_id"),
+            row.get("season_number"),
+            row.get("cache_payload"),
+        )
+        effective_final_state = row.get("override_final_state") or row.get("final_state")
+        effective_final_completed_at = _iso(
+            row.get("override_final_completed_at") or row.get("final_completed_at")
+        )
+        logs.append(
+            {
+                "id": row.get("id"),
+                "created_at": _iso(row.get("created_at")),
+                "action_type": row.get("action_type"),
+                "reason": row.get("reason"),
+                "admin_email": row.get("admin_email"),
+                "media_type": row.get("media_type"),
+                "tmdb_id": row.get("tmdb_id"),
+                "season_number": row.get("season_number"),
+                "title": title,
+                "base_status_raw": row.get("status_raw"),
+                "base_final_state": row.get("final_state"),
+                "base_final_completed_at": _iso(row.get("final_completed_at")),
+                "effective_final_state": effective_final_state,
+                "effective_final_completed_at": effective_final_completed_at,
+                "payload": _as_json_object(row.get("payload")),
+            }
+        )
+    cursor.close()
+
+    return jsonify({"success": True, "logs": logs, "limit": limit, "offset": offset})
 
 
 @admin_bp.post("/users/<int:user_id>/refresh")
