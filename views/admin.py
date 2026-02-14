@@ -145,6 +145,7 @@ def _record_admin_job_report(conn, job_name, status, report_data):
 
 
 _ALLOWED_MEDIA_TYPES = {"movie", "tv", "season"}
+_ALLOWED_MEDIA_TYPES_LIST = ["movie", "tv", "season"]
 _ALLOWED_CONTENT_ACTION_TYPES = {
     "OVERRIDE_UPSERT",
     "OVERRIDE_DELETE",
@@ -169,6 +170,7 @@ _ADMIN_CONTENT_SELECT_SQL = """
         c.final_state,
         c.final_completed_at,
         c.payload,
+        pt.payload AS parent_tv_payload,
         c.fetched_at,
         c.expires_at,
         c.updated_at,
@@ -187,6 +189,11 @@ _ADMIN_CONTENT_SELECT_SQL = """
       ON o.media_type = c.media_type
      AND o.tmdb_id = c.tmdb_id
      AND o.season_number = c.season_number
+    LEFT JOIN tmdb_cache pt
+      ON c.media_type = 'season'
+     AND pt.media_type = 'tv'
+     AND pt.tmdb_id = c.tmdb_id
+     AND pt.season_number = -1
 """
 
 
@@ -250,17 +257,41 @@ def _as_json_object(value):
     return {}
 
 
-def _content_title_from_cache_row(media_type, tmdb_id, season_number, payload):
+def _content_title_from_cache_row(media_type, tmdb_id, season_number, payload, parent_tv_payload=None):
     payload_data = _as_json_object(payload)
+    parent_tv_payload_data = _as_json_object(parent_tv_payload)
     if media_type == "movie":
-        return payload_data.get("title") or f"TMDB Movie {tmdb_id}"
+        return (
+            payload_data.get("title")
+            or payload_data.get("original_title")
+            or payload_data.get("name")
+            or payload_data.get("original_name")
+            or f"TMDB Movie {tmdb_id}"
+        )
     if media_type == "tv":
-        return payload_data.get("name") or payload_data.get("original_name") or f"TMDB TV {tmdb_id}"
+        return (
+            payload_data.get("name")
+            or payload_data.get("original_name")
+            or payload_data.get("title")
+            or payload_data.get("original_title")
+            or f"TMDB TV {tmdb_id}"
+        )
     if media_type == "season":
         season_name = payload_data.get("name")
+        show_name = (
+            payload_data.get("show_name")
+            or payload_data.get("series_name")
+            or parent_tv_payload_data.get("name")
+            or parent_tv_payload_data.get("original_name")
+            or parent_tv_payload_data.get("title")
+            or parent_tv_payload_data.get("original_title")
+        )
+        if season_name and show_name:
+            if season_name.lower().startswith(show_name.lower()):
+                return season_name
+            return f"{show_name} {season_name}"
         if season_name:
             return season_name
-        show_name = payload_data.get("show_name") or payload_data.get("series_name")
         if show_name and season_number is not None:
             return f"{show_name} Season {season_number}"
         if season_number is not None:
@@ -325,7 +356,13 @@ def _serialize_admin_content(row):
         "media_type": media_type,
         "tmdb_id": tmdb_id,
         "season_number": season_number,
-        "title": _content_title_from_cache_row(media_type, tmdb_id, season_number, payload),
+        "title": _content_title_from_cache_row(
+            media_type,
+            tmdb_id,
+            season_number,
+            payload,
+            row.get("parent_tv_payload"),
+        ),
         "poster_path": payload.get("poster_path"),
         "backdrop_path": payload.get("backdrop_path"),
         "base": base,
@@ -697,6 +734,9 @@ def admin_contents_search(payload):
     if media_type:
         sql += " AND c.media_type = %s"
         params.append(media_type)
+    else:
+        sql += " AND c.media_type = ANY(%s)"
+        params.append(_ALLOWED_MEDIA_TYPES_LIST)
     if has_override is True:
         sql += " AND o.id IS NOT NULL"
     elif has_override is False:
@@ -712,7 +752,7 @@ def admin_contents_search(payload):
     if q:
         sql += """
             AND (
-                COALESCE(c.payload->>'title', c.payload->>'name', '') ILIKE %s
+                COALESCE(c.payload->>'title', c.payload->>'name', pt.payload->>'name', '') ILIKE %s
                 OR CAST(c.tmdb_id AS TEXT) = %s
             )
         """
@@ -795,6 +835,7 @@ def admin_contents_overrides(payload):
             o.created_at AS override_created_at,
             o.updated_at AS override_updated_at,
             c.payload,
+            pt.payload AS parent_tv_payload,
             c.status_raw,
             c.final_state,
             c.final_completed_at
@@ -803,6 +844,11 @@ def admin_contents_overrides(payload):
           ON c.media_type = o.media_type
          AND c.tmdb_id = o.tmdb_id
          AND c.season_number = o.season_number
+        LEFT JOIN tmdb_cache pt
+          ON o.media_type = 'season'
+         AND pt.media_type = 'tv'
+         AND pt.tmdb_id = o.tmdb_id
+         AND pt.season_number = -1
         WHERE 1=1
     """
     params = []
@@ -812,7 +858,7 @@ def admin_contents_overrides(payload):
     if q:
         sql += """
             AND (
-                COALESCE(c.payload->>'title', c.payload->>'name', '') ILIKE %s
+                COALESCE(c.payload->>'title', c.payload->>'name', pt.payload->>'name', '') ILIKE %s
                 OR CAST(o.tmdb_id AS TEXT) = %s
             )
         """
@@ -836,6 +882,7 @@ def admin_contents_overrides(payload):
                     row.get("tmdb_id"),
                     row.get("season_number"),
                     row.get("payload"),
+                    row.get("parent_tv_payload"),
                 ),
                 "override": _serialize_tmdb_override(row),
                 "base": {
@@ -1098,10 +1145,13 @@ def admin_contents_missing_final_date(payload):
     if media_type:
         sql += " AND c.media_type = %s"
         params.append(media_type)
+    else:
+        sql += " AND c.media_type = ANY(%s)"
+        params.append(_ALLOWED_MEDIA_TYPES_LIST)
     if q:
         sql += """
             AND (
-                COALESCE(c.payload->>'title', c.payload->>'name', '') ILIKE %s
+                COALESCE(c.payload->>'title', c.payload->>'name', pt.payload->>'name', '') ILIKE %s
                 OR CAST(c.tmdb_id AS TEXT) = %s
             )
         """
@@ -1159,6 +1209,7 @@ def admin_content_audit_logs(payload):
             l.season_number,
             l.payload,
             c.payload AS cache_payload,
+            pt.payload AS parent_tv_payload,
             c.status_raw,
             c.final_state,
             c.final_completed_at,
@@ -1169,6 +1220,11 @@ def admin_content_audit_logs(payload):
           ON c.media_type = l.media_type
          AND c.tmdb_id = l.tmdb_id
          AND c.season_number = l.season_number
+        LEFT JOIN tmdb_cache pt
+          ON l.media_type = 'season'
+         AND pt.media_type = 'tv'
+         AND pt.tmdb_id = l.tmdb_id
+         AND pt.season_number = -1
         LEFT JOIN admin_tmdb_overrides o
           ON o.media_type = l.media_type
          AND o.tmdb_id = l.tmdb_id
@@ -1188,7 +1244,7 @@ def admin_content_audit_logs(payload):
     if q:
         sql += """
             AND (
-                COALESCE(c.payload->>'title', c.payload->>'name', '') ILIKE %s
+                COALESCE(c.payload->>'title', c.payload->>'name', pt.payload->>'name', '') ILIKE %s
                 OR CAST(l.tmdb_id AS TEXT) = %s
             )
         """
@@ -1208,6 +1264,7 @@ def admin_content_audit_logs(payload):
             row.get("tmdb_id"),
             row.get("season_number"),
             row.get("cache_payload"),
+            row.get("parent_tv_payload"),
         )
         effective_final_state = row.get("override_final_state") or row.get("final_state")
         effective_final_completed_at = _iso(
