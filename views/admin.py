@@ -150,6 +150,8 @@ _ALLOWED_CONTENT_ACTION_TYPES = {
     "OVERRIDE_UPSERT",
     "OVERRIDE_DELETE",
 }
+_PUBLICATION_CHANGE_EVENT_TYPES = ("date_set", "date_changed")
+_COMPLETION_CHANGE_EVENT_TYPES = ("season_binge_ready", "full_run_concluded", "status_milestone")
 
 _ADMIN_CONTENT_SELECT_SQL = """
     WITH targets AS (
@@ -436,6 +438,142 @@ def _serialize_admin_content(row):
         "expires_at": _iso(row.get("expires_at")),
         "updated_at": _iso(row.get("updated_at")),
     }
+
+
+def _target_type_from_media_type(media_type):
+    if media_type == "movie":
+        return ["movie"]
+    if media_type == "tv":
+        return ["tv_full"]
+    if media_type == "season":
+        return ["tv_season"]
+    return []
+
+
+def _media_type_from_target_type(target_type):
+    if target_type == "movie":
+        return "movie"
+    if target_type == "tv_full":
+        return "tv"
+    if target_type == "tv_season":
+        return "season"
+    return None
+
+
+def _serialize_recent_content_change(row):
+    payload = _as_json_object(row.get("event_payload"))
+    source = row.get("target_type")
+    tmdb_id = row.get("tmdb_id")
+    season_number = row.get("season_number")
+    if source != "tv_season":
+        season_number = -1
+
+    title = _title_from_cache(source, row.get("cache_payload")) or (
+        f"TMDB {tmdb_id}" if tmdb_id is not None else "TMDB"
+    )
+    return {
+        "id": row.get("id"),
+        "created_at": _iso(row.get("created_at")),
+        "event_type": row.get("event_type"),
+        "source": source,
+        "media_type": _media_type_from_target_type(source),
+        "tmdb_id": tmdb_id,
+        "content_id": str(tmdb_id) if tmdb_id is not None else None,
+        "season_number": season_number,
+        "title": title,
+        "field": payload.get("field"),
+        "from_value": payload.get("from"),
+        "to_value": payload.get("to"),
+        "event_payload": payload,
+    }
+
+
+def _load_recent_content_changes(
+    conn,
+    *,
+    event_types,
+    limit,
+    offset,
+    q=None,
+    media_type=None,
+    created_from=None,
+    created_to=None,
+):
+    params = [list(event_types)]
+    sql = f"""
+        WITH filtered AS (
+            SELECT
+                e.id,
+                e.created_at,
+                e.event_type,
+                e.event_payload,
+                f.target_type,
+                f.tmdb_id,
+                COALESCE(f.season_number, -1) AS season_number,
+                c.payload AS cache_payload
+            FROM change_events e
+            JOIN follows f ON f.id = e.follow_id
+            {_CACHE_JOIN_SQL}
+            WHERE e.event_type = ANY(%s)
+    """
+
+    if media_type:
+        target_types = _target_type_from_media_type(media_type)
+        if target_types:
+            sql += " AND f.target_type = ANY(%s)"
+            params.append(target_types)
+    if created_from:
+        sql += " AND e.created_at >= %s"
+        params.append(created_from)
+    if created_to:
+        sql += " AND e.created_at <= %s"
+        params.append(created_to)
+    if q:
+        sql += """
+            AND (
+                COALESCE(c.payload->>'title', c.payload->>'name', '') ILIKE %s
+                OR CAST(f.tmdb_id AS TEXT) = %s
+            )
+        """
+        params.extend([f"%{q}%", q])
+
+    sql += """
+        ),
+        dedup AS (
+            SELECT DISTINCT ON (target_type, tmdb_id, season_number)
+                id,
+                created_at,
+                event_type,
+                event_payload,
+                target_type,
+                tmdb_id,
+                season_number,
+                cache_payload
+            FROM filtered
+            ORDER BY target_type, tmdb_id, season_number, created_at DESC, id DESC
+        )
+        SELECT
+            id,
+            created_at,
+            event_type,
+            event_payload,
+            target_type,
+            tmdb_id,
+            season_number,
+            cache_payload
+        FROM dedup
+        ORDER BY created_at DESC, id DESC
+        LIMIT %s OFFSET %s
+    """
+    params.extend([limit, offset])
+
+    cursor = get_cursor(conn)
+    try:
+        cursor.execute(sql, tuple(params))
+        rows = cursor.fetchall()
+    finally:
+        cursor.close()
+    return [_serialize_recent_content_change(row) for row in rows]
 
 
 def _record_content_action_log(
@@ -1266,6 +1404,144 @@ def admin_contents_missing_final_date(payload):
     items = [_serialize_admin_content(row) for row in cursor.fetchall()]
     cursor.close()
 
+    return jsonify({"success": True, "items": items, "limit": limit, "offset": offset})
+
+
+@admin_bp.get("/contents/missing-publication-date")
+@require_admin
+def admin_contents_missing_publication_date(payload):
+    _ = payload
+    limit = _bounded_int(request.args.get("limit"), default=50, minimum=1, maximum=200)
+    offset = _bounded_int(request.args.get("offset"), default=0, minimum=0, maximum=100000)
+    q = (request.args.get("q") or "").strip()
+    media_type_raw = (request.args.get("media_type") or "").strip()
+
+    media_type = None
+    if media_type_raw and media_type_raw.lower() != "all":
+        media_type = _normalize_media_type(media_type_raw)
+        if media_type is None:
+            return jsonify({"error": "media_type must be movie, tv, or season"}), 400
+
+    sql = f"""
+        {_ADMIN_CONTENT_SELECT_SQL}
+        WHERE COALESCE(c.payload, d.payload) IS NOT NULL
+          AND (
+            (t.media_type = 'movie' AND COALESCE(o.override_release_date, c.release_date) IS NULL)
+            OR (
+                t.media_type = 'tv'
+                AND COALESCE(o.override_next_air_date, c.next_air_date, c.first_air_date, c.last_air_date) IS NULL
+            )
+            OR (
+                t.media_type = 'season'
+                AND COALESCE(o.override_release_date, c.season_air_date, c.season_last_episode_air_date) IS NULL
+            )
+          )
+    """
+    params = []
+    if media_type:
+        sql += " AND t.media_type = %s"
+        params.append(media_type)
+    else:
+        sql += " AND t.media_type = ANY(%s)"
+        params.append(_ALLOWED_MEDIA_TYPES_LIST)
+    if q:
+        sql += """
+            AND (
+                COALESCE(
+                    c.payload->>'title',
+                    c.payload->>'name',
+                    d.payload->>'title',
+                    d.payload->>'name',
+                    pt.payload->>'name',
+                    ptd.payload->>'name',
+                    ''
+                ) ILIKE %s
+                OR CAST(t.tmdb_id AS TEXT) = %s
+            )
+        """
+        params.extend([f"%{q}%", q])
+    sql += """
+        ORDER BY COALESCE(o.updated_at, COALESCE(c.updated_at, d.updated_at)) DESC NULLS LAST, t.tmdb_id DESC, t.season_number DESC
+        LIMIT %s OFFSET %s
+    """
+    params.extend([limit, offset])
+
+    db = get_db()
+    cursor = get_cursor(db)
+    cursor.execute(sql, tuple(params))
+    items = [_serialize_admin_content(row) for row in cursor.fetchall()]
+    cursor.close()
+
+    return jsonify({"success": True, "items": items, "limit": limit, "offset": offset})
+
+
+@admin_bp.get("/contents/recent-publication-changes")
+@require_admin
+def admin_contents_recent_publication_changes(payload):
+    _ = payload
+    limit = _bounded_int(request.args.get("limit"), default=50, minimum=1, maximum=200)
+    offset = _bounded_int(request.args.get("offset"), default=0, minimum=0, maximum=100000)
+    q = (request.args.get("q") or "").strip()
+    media_type_raw = (request.args.get("media_type") or "").strip()
+    created_from = _parse_datetime_param(request.args.get("created_from"))
+    created_to = _parse_datetime_param(request.args.get("created_to"))
+    if request.args.get("created_from") and created_from is None:
+        return jsonify({"error": "created_from must be ISO-8601 datetime"}), 400
+    if request.args.get("created_to") and created_to is None:
+        return jsonify({"error": "created_to must be ISO-8601 datetime"}), 400
+
+    media_type = None
+    if media_type_raw and media_type_raw.lower() != "all":
+        media_type = _normalize_media_type(media_type_raw)
+        if media_type is None:
+            return jsonify({"error": "media_type must be movie, tv, or season"}), 400
+
+    db = get_db()
+    items = _load_recent_content_changes(
+        db,
+        event_types=_PUBLICATION_CHANGE_EVENT_TYPES,
+        limit=limit,
+        offset=offset,
+        q=q,
+        media_type=media_type,
+        created_from=created_from,
+        created_to=created_to,
+    )
+    return jsonify({"success": True, "items": items, "limit": limit, "offset": offset})
+
+
+@admin_bp.get("/contents/recent-completion-changes")
+@require_admin
+def admin_contents_recent_completion_changes(payload):
+    _ = payload
+    limit = _bounded_int(request.args.get("limit"), default=50, minimum=1, maximum=200)
+    offset = _bounded_int(request.args.get("offset"), default=0, minimum=0, maximum=100000)
+    q = (request.args.get("q") or "").strip()
+    media_type_raw = (request.args.get("media_type") or "").strip()
+    created_from = _parse_datetime_param(request.args.get("created_from"))
+    created_to = _parse_datetime_param(request.args.get("created_to"))
+    if request.args.get("created_from") and created_from is None:
+        return jsonify({"error": "created_from must be ISO-8601 datetime"}), 400
+    if request.args.get("created_to") and created_to is None:
+        return jsonify({"error": "created_to must be ISO-8601 datetime"}), 400
+
+    media_type = None
+    if media_type_raw and media_type_raw.lower() != "all":
+        media_type = _normalize_media_type(media_type_raw)
+        if media_type is None:
+            return jsonify({"error": "media_type must be movie, tv, or season"}), 400
+
+    db = get_db()
+    items = _load_recent_content_changes(
+        db,
+        event_types=_COMPLETION_CHANGE_EVENT_TYPES,
+        limit=limit,
+        offset=offset,
+        q=q,
+        media_type=media_type,
+        created_from=created_from,
+        created_to=created_to,
+    )
     return jsonify({"success": True, "items": items, "limit": limit, "offset": offset})
 
 

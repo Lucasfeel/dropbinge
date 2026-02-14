@@ -1,0 +1,24 @@
+name: Cron - Cleanup Admin Job Reports
+
+on:
+  schedule:
+    - cron: "35 0 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  cleanup-reports:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger cleanup endpoint
+        env:
+          CRON_CLEANUP_URL: ${{ secrets.CRON_CLEANUP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_CLEANUP_URL" ]; then
+            echo "CRON_CLEANUP_URL is not configured. Skipping."
+            exit 0
+          fi
+          curl -sS -X POST "$CRON_CLEANUP_URL" \
+            -H "X-CRON-SECRET: $CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            --fail

@@ -8,6 +8,11 @@ type TabKey =
   | "overview"
   | "contents"
   | "users"
+  | "recentPublication"
+  | "recentCompletion"
+  | "missingCompletion"
+  | "missingPublication"
+  | "opsLog"
   | "cdcEvents"
   | "reports"
   | "dailyNotification"
@@ -86,6 +91,29 @@ type CdcEventItem = {
 type CdcEventsPayload = {
   success: boolean;
   events: CdcEventItem[];
+  limit: number;
+  offset: number;
+};
+
+type RecentContentChangeItem = {
+  id: number;
+  created_at: string | null;
+  event_type: string;
+  source: "movie" | "tv_full" | "tv_season" | null;
+  media_type: "movie" | "tv" | "season" | null;
+  tmdb_id: number | null;
+  content_id: string | null;
+  season_number: number | null;
+  title: string | null;
+  field: string | null;
+  from_value: string | null;
+  to_value: string | null;
+  event_payload: Record<string, unknown>;
+};
+
+type RecentContentChangesPayload = {
+  success: boolean;
+  items: RecentContentChangeItem[];
   limit: number;
   offset: number;
 };
@@ -254,6 +282,11 @@ const CONTENT_MEDIA_LABEL = {
   tv: "TV",
   season: "Season",
 } as const;
+const CHANGE_SOURCE_LABEL = {
+  movie: "Movie",
+  tv_full: "TV Full",
+  tv_season: "TV Season",
+} as const;
 
 const formatDate = (value: string | null | undefined) => {
   if (!value) {
@@ -308,6 +341,30 @@ const parseOptionalPositiveInt = (value: string) => {
     return null;
   }
   return parsed;
+};
+
+const formatChangeValue = (value: unknown) => {
+  if (value === null || value === undefined || value === "") {
+    return "-";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  return JSON.stringify(value);
+};
+
+const recentItemToLookupTarget = (item: RecentContentChangeItem) => {
+  const source = item.source || "movie";
+  const mediaType = source === "tv_full" ? "tv" : source === "tv_season" ? "season" : "movie";
+  const tmdbId = item.tmdb_id || Number.parseInt(item.content_id || "0", 10);
+  if (!tmdbId || Number.isNaN(tmdbId)) {
+    return null;
+  }
+  return {
+    media_type: mediaType as "movie" | "tv" | "season",
+    tmdb_id: tmdbId,
+    season_number: mediaType === "season" ? item.season_number || 0 : -1,
+  };
 };
 
 const statusBadgeClass = (normalizedStatus: string) => {
@@ -371,7 +428,7 @@ const copyText = async (text: string) => {
 export const AdminPage = () => {
   const { token, user, loadingUser, logout } = useAuth();
 
-  const [tab, setTab] = useState<TabKey>("overview");
+  const [tab, setTab] = useState<TabKey>("contents");
   const [toast, setToast] = useState<{ text: string; tone: Tone } | null>(null);
 
   const [overview, setOverview] = useState<OverviewPayload | null>(null);
@@ -402,11 +459,35 @@ export const AdminPage = () => {
   const [overridesLimit] = useState(20);
   const [overridesLastCount, setOverridesLastCount] = useState(0);
 
+  const [recentPublicationChanges, setRecentPublicationChanges] = useState<RecentContentChangeItem[]>(
+    [],
+  );
+  const [recentPublicationLoading, setRecentPublicationLoading] = useState(false);
+  const [recentPublicationOffset, setRecentPublicationOffset] = useState(0);
+  const [recentPublicationLimit] = useState(20);
+  const [recentPublicationLastCount, setRecentPublicationLastCount] = useState(0);
+
+  const [recentCompletionChanges, setRecentCompletionChanges] = useState<RecentContentChangeItem[]>(
+    [],
+  );
+  const [recentCompletionLoading, setRecentCompletionLoading] = useState(false);
+  const [recentCompletionOffset, setRecentCompletionOffset] = useState(0);
+  const [recentCompletionLimit] = useState(20);
+  const [recentCompletionLastCount, setRecentCompletionLastCount] = useState(0);
+
   const [missingContents, setMissingContents] = useState<ManagedContentItem[]>([]);
   const [missingLoading, setMissingLoading] = useState(false);
   const [missingOffset, setMissingOffset] = useState(0);
   const [missingLimit] = useState(20);
   const [missingLastCount, setMissingLastCount] = useState(0);
+
+  const [missingPublicationContents, setMissingPublicationContents] = useState<ManagedContentItem[]>(
+    [],
+  );
+  const [missingPublicationLoading, setMissingPublicationLoading] = useState(false);
+  const [missingPublicationOffset, setMissingPublicationOffset] = useState(0);
+  const [missingPublicationLimit] = useState(20);
+  const [missingPublicationLastCount, setMissingPublicationLastCount] = useState(0);
 
   const [contentAuditActionType, setContentAuditActionType] = useState("");
   const [contentAuditLogs, setContentAuditLogs] = useState<ManagedContentAuditLog[]>([]);
@@ -614,6 +695,50 @@ export const AdminPage = () => {
     }
   };
 
+  const loadRecentPublicationChanges = async (nextOffset = recentPublicationOffset) => {
+    setRecentPublicationLoading(true);
+    try {
+      const params = new URLSearchParams({
+        limit: String(recentPublicationLimit),
+        offset: String(nextOffset),
+      });
+      if (contentQ.trim()) params.set("q", contentQ.trim());
+      if (contentMediaType) params.set("media_type", contentMediaType);
+      const payload = await apiFetch<RecentContentChangesPayload>(
+        `/api/admin/contents/recent-publication-changes?${params.toString()}`,
+      );
+      setRecentPublicationChanges(payload.items || []);
+      setRecentPublicationOffset(payload.offset);
+      setRecentPublicationLastCount((payload.items || []).length);
+    } catch (error) {
+      notify(messageOf(error, "Failed to load recent publication changes."), "error");
+    } finally {
+      setRecentPublicationLoading(false);
+    }
+  };
+
+  const loadRecentCompletionChanges = async (nextOffset = recentCompletionOffset) => {
+    setRecentCompletionLoading(true);
+    try {
+      const params = new URLSearchParams({
+        limit: String(recentCompletionLimit),
+        offset: String(nextOffset),
+      });
+      if (contentQ.trim()) params.set("q", contentQ.trim());
+      if (contentMediaType) params.set("media_type", contentMediaType);
+      const payload = await apiFetch<RecentContentChangesPayload>(
+        `/api/admin/contents/recent-completion-changes?${params.toString()}`,
+      );
+      setRecentCompletionChanges(payload.items || []);
+      setRecentCompletionOffset(payload.offset);
+      setRecentCompletionLastCount((payload.items || []).length);
+    } catch (error) {
+      notify(messageOf(error, "Failed to load recent completion changes."), "error");
+    } finally {
+      setRecentCompletionLoading(false);
+    }
+  };
+
   const loadMissingContents = async (nextOffset = missingOffset) => {
     setMissingLoading(true);
     try {
@@ -633,6 +758,28 @@ export const AdminPage = () => {
       notify(messageOf(error, "Failed to load missing final-date contents."), "error");
     } finally {
       setMissingLoading(false);
+    }
+  };
+
+  const loadMissingPublicationContents = async (nextOffset = missingPublicationOffset) => {
+    setMissingPublicationLoading(true);
+    try {
+      const params = new URLSearchParams({
+        limit: String(missingPublicationLimit),
+        offset: String(nextOffset),
+      });
+      if (contentQ.trim()) params.set("q", contentQ.trim());
+      if (contentMediaType) params.set("media_type", contentMediaType);
+      const payload = await apiFetch<ManagedContentsPayload>(
+        `/api/admin/contents/missing-publication-date?${params.toString()}`,
+      );
+      setMissingPublicationContents(payload.items || []);
+      setMissingPublicationOffset(payload.offset);
+      setMissingPublicationLastCount((payload.items || []).length);
+    } catch (error) {
+      notify(messageOf(error, "Failed to load missing publication-date contents."), "error");
+    } finally {
+      setMissingPublicationLoading(false);
     }
   };
 
@@ -689,7 +836,13 @@ export const AdminPage = () => {
         );
       }
       notify("Content override saved.", "success");
-      await Promise.all([loadContentOverrides(0), loadMissingContents(0), loadContentAuditLogs(0)]);
+      await Promise.all([
+        loadContentOverrides(0),
+        loadRecentCompletionChanges(0),
+        loadMissingContents(0),
+        loadMissingPublicationContents(0),
+        loadContentAuditLogs(0),
+      ]);
     } catch (error) {
       notify(messageOf(error, "Failed to save content override."), "error");
     } finally {
@@ -727,7 +880,13 @@ export const AdminPage = () => {
         );
       }
       notify("Content override deleted.", "success");
-      await Promise.all([loadContentOverrides(0), loadMissingContents(0), loadContentAuditLogs(0)]);
+      await Promise.all([
+        loadContentOverrides(0),
+        loadRecentCompletionChanges(0),
+        loadMissingContents(0),
+        loadMissingPublicationContents(0),
+        loadContentAuditLogs(0),
+      ]);
     } catch (error) {
       notify(messageOf(error, "Failed to delete content override."), "error");
     } finally {
@@ -878,12 +1037,17 @@ export const AdminPage = () => {
   useEffect(() => {
     if (!canAccessAdmin) return;
     if (tab === "contents") {
-      void Promise.all([
-        loadContents(0),
-        loadContentOverrides(0),
-        loadMissingContents(0),
-        loadContentAuditLogs(0),
-      ]);
+      void loadContents(0);
+    } else if (tab === "recentPublication") {
+      void loadRecentPublicationChanges(0);
+    } else if (tab === "recentCompletion") {
+      void loadRecentCompletionChanges(0);
+    } else if (tab === "missingCompletion") {
+      void loadMissingContents(0);
+    } else if (tab === "missingPublication") {
+      void loadMissingPublicationContents(0);
+    } else if (tab === "opsLog") {
+      void loadContentAuditLogs(0);
     } else if (tab === "users") {
       void loadUsers(usersQuery, usersOffset);
     } else if (tab === "cdcEvents") {
@@ -1030,8 +1194,14 @@ export const AdminPage = () => {
   const hasContentNext = contentLastCount >= contentLimit;
   const hasOverridesPrev = overridesOffset > 0;
   const hasOverridesNext = overridesLastCount >= overridesLimit;
+  const hasRecentPublicationPrev = recentPublicationOffset > 0;
+  const hasRecentPublicationNext = recentPublicationLastCount >= recentPublicationLimit;
+  const hasRecentCompletionPrev = recentCompletionOffset > 0;
+  const hasRecentCompletionNext = recentCompletionLastCount >= recentCompletionLimit;
   const hasMissingPrev = missingOffset > 0;
   const hasMissingNext = missingLastCount >= missingLimit;
+  const hasMissingPublicationPrev = missingPublicationOffset > 0;
+  const hasMissingPublicationNext = missingPublicationLastCount >= missingPublicationLimit;
   const hasContentAuditPrev = contentAuditOffset > 0;
   const hasContentAuditNext = contentAuditLastCount >= contentAuditLimit;
   const hasUsersPrev = usersOffset > 0;
@@ -1127,13 +1297,69 @@ export const AdminPage = () => {
         </header>
 
         <nav className="admin-tab-row">
-          <button type="button" className={`admin-tab-btn ${tab === "overview" ? "active" : ""}`} onClick={() => setTab("overview")}>Overview</button>
-          <button type="button" className={`admin-tab-btn ${tab === "contents" ? "active" : ""}`} onClick={() => setTab("contents")}>Contents</button>
-          <button type="button" className={`admin-tab-btn ${tab === "users" ? "active" : ""}`} onClick={() => setTab("users")}>Users</button>
-          <button type="button" className={`admin-tab-btn ${tab === "cdcEvents" ? "active" : ""}`} onClick={() => setTab("cdcEvents")}>CDC Events</button>
-          <button type="button" className={`admin-tab-btn ${tab === "reports" ? "active" : ""}`} onClick={() => setTab("reports")}>Reports</button>
-          <button type="button" className={`admin-tab-btn ${tab === "dailyNotification" ? "active" : ""}`} onClick={() => setTab("dailyNotification")}>Daily Notification</button>
-          <button type="button" className={`admin-tab-btn ${tab === "ops" ? "active" : ""}`} onClick={() => setTab("ops")}>Ops</button>
+          <button
+            type="button"
+            className={`admin-tab-btn ${tab === "contents" ? "active" : ""}`}
+            onClick={() => setTab("contents")}
+          >
+            콘텐츠 관리
+          </button>
+          <button
+            type="button"
+            className={`admin-tab-btn ${tab === "recentPublication" ? "active" : ""}`}
+            onClick={() => setTab("recentPublication")}
+          >
+            최근 공개일 변경
+          </button>
+          <button
+            type="button"
+            className={`admin-tab-btn ${tab === "recentCompletion" ? "active" : ""}`}
+            onClick={() => setTab("recentCompletion")}
+          >
+            최근 완결일 변경
+          </button>
+          <button
+            type="button"
+            className={`admin-tab-btn ${tab === "missingCompletion" ? "active" : ""}`}
+            onClick={() => setTab("missingCompletion")}
+          >
+            완결일 미설정
+          </button>
+          <button
+            type="button"
+            className={`admin-tab-btn ${tab === "missingPublication" ? "active" : ""}`}
+            onClick={() => setTab("missingPublication")}
+          >
+            공개일 미설정
+          </button>
+          <button
+            type="button"
+            className={`admin-tab-btn ${tab === "opsLog" ? "active" : ""}`}
+            onClick={() => setTab("opsLog")}
+          >
+            운영로그
+          </button>
+          <button
+            type="button"
+            className={`admin-tab-btn ${tab === "cdcEvents" ? "active" : ""}`}
+            onClick={() => setTab("cdcEvents")}
+          >
+            cdc 이벤트
+          </button>
+          <button
+            type="button"
+            className={`admin-tab-btn ${tab === "reports" ? "active" : ""}`}
+            onClick={() => setTab("reports")}
+          >
+            작업로그
+          </button>
+          <button
+            type="button"
+            className={`admin-tab-btn ${tab === "dailyNotification" ? "active" : ""}`}
+            onClick={() => setTab("dailyNotification")}
+          >
+            일일알림리포트
+          </button>
         </nav>
 
         {tab === "overview" ? (
@@ -1745,6 +1971,606 @@ export const AdminPage = () => {
                 </div>
               </article>
             </div>
+          </section>
+        ) : null}
+
+        {tab === "recentPublication" ? (
+          <section className="admin-section">
+            <article className="admin-card">
+              <div className="admin-inline-actions spread">
+                <h2>최근 공개일 변경</h2>
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={recentPublicationLoading}
+                  onClick={() => void loadRecentPublicationChanges(0)}
+                >
+                  Refresh
+                </button>
+              </div>
+
+              <div className="admin-form-grid">
+                <div className="admin-field">
+                  <label>Search</label>
+                  <input
+                    value={contentQ}
+                    onChange={(event) => setContentQ(event.target.value)}
+                    placeholder="title or tmdb id"
+                  />
+                </div>
+                <div className="admin-field">
+                  <label>Media Type</label>
+                  <select
+                    value={contentMediaType}
+                    onChange={(event) => setContentMediaType(event.target.value)}
+                  >
+                    <option value="">All</option>
+                    <option value="movie">movie</option>
+                    <option value="tv">tv</option>
+                    <option value="season">season</option>
+                  </select>
+                </div>
+              </div>
+              <div className="admin-inline-actions">
+                <button
+                  type="button"
+                  className="admin-link-btn"
+                  disabled={recentPublicationLoading}
+                  onClick={() => void loadRecentPublicationChanges(0)}
+                >
+                  Search
+                </button>
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={recentPublicationLoading}
+                  onClick={() => {
+                    setContentQ("");
+                    setContentMediaType("");
+                    setRecentPublicationOffset(0);
+                    setRecentPublicationLastCount(0);
+                    setRecentPublicationChanges([]);
+                  }}
+                >
+                  Reset
+                </button>
+              </div>
+
+              <div className="admin-inline-actions spread">
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={!hasRecentPublicationPrev || recentPublicationLoading}
+                  onClick={() =>
+                    void loadRecentPublicationChanges(
+                      Math.max(0, recentPublicationOffset - recentPublicationLimit),
+                    )
+                  }
+                >
+                  Prev
+                </button>
+                <span className="admin-muted">offset: {recentPublicationOffset}</span>
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={!hasRecentPublicationNext || recentPublicationLoading}
+                  onClick={() => void loadRecentPublicationChanges(recentPublicationOffset + recentPublicationLimit)}
+                >
+                  Next
+                </button>
+              </div>
+
+              <div className="admin-list compact">
+                {recentPublicationChanges.map((item) => {
+                  const target = recentItemToLookupTarget(item);
+                  const sourceLabel = item.source ? CHANGE_SOURCE_LABEL[item.source] : "-";
+                  return (
+                    <div key={item.id} className="admin-list-item top">
+                      <div>
+                        <strong>{item.title || `TMDB ${item.tmdb_id || "-"}`}</strong>
+                        <p className="admin-muted">
+                          {sourceLabel} / tmdb:{item.tmdb_id || "-"}
+                          {item.source === "tv_season" ? ` / season:${item.season_number ?? "-"}` : ""}
+                        </p>
+                        <p className="admin-muted">
+                          {item.field || "date"}: {formatChangeValue(item.from_value)} -&gt;{" "}
+                          {formatChangeValue(item.to_value)}
+                        </p>
+                        <p className="admin-muted">
+                          {item.event_type} / {formatDate(item.created_at)}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className="admin-link-btn secondary"
+                        disabled={!target}
+                        onClick={() => {
+                          if (!target) return;
+                          void loadContentLookup(target);
+                        }}
+                      >
+                        Open
+                      </button>
+                    </div>
+                  );
+                })}
+                {recentPublicationLoading ? <p className="admin-muted">Loading...</p> : null}
+                {!recentPublicationLoading && recentPublicationChanges.length === 0 ? (
+                  <p className="admin-muted">No recent publication changes.</p>
+                ) : null}
+              </div>
+            </article>
+          </section>
+        ) : null}
+
+        {tab === "recentCompletion" ? (
+          <section className="admin-section">
+            <article className="admin-card">
+              <div className="admin-inline-actions spread">
+                <h2>최근 완결일 변경</h2>
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={recentCompletionLoading}
+                  onClick={() => void loadRecentCompletionChanges(0)}
+                >
+                  Refresh
+                </button>
+              </div>
+
+              <div className="admin-form-grid">
+                <div className="admin-field">
+                  <label>Search</label>
+                  <input
+                    value={contentQ}
+                    onChange={(event) => setContentQ(event.target.value)}
+                    placeholder="title or tmdb id"
+                  />
+                </div>
+                <div className="admin-field">
+                  <label>Media Type</label>
+                  <select
+                    value={contentMediaType}
+                    onChange={(event) => setContentMediaType(event.target.value)}
+                  >
+                    <option value="">All</option>
+                    <option value="movie">movie</option>
+                    <option value="tv">tv</option>
+                    <option value="season">season</option>
+                  </select>
+                </div>
+              </div>
+              <div className="admin-inline-actions">
+                <button
+                  type="button"
+                  className="admin-link-btn"
+                  disabled={recentCompletionLoading}
+                  onClick={() => void loadRecentCompletionChanges(0)}
+                >
+                  Search
+                </button>
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={recentCompletionLoading}
+                  onClick={() => {
+                    setContentQ("");
+                    setContentMediaType("");
+                    setRecentCompletionOffset(0);
+                    setRecentCompletionLastCount(0);
+                    setRecentCompletionChanges([]);
+                  }}
+                >
+                  Reset
+                </button>
+              </div>
+
+              <div className="admin-inline-actions spread">
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={!hasRecentCompletionPrev || recentCompletionLoading}
+                  onClick={() =>
+                    void loadRecentCompletionChanges(
+                      Math.max(0, recentCompletionOffset - recentCompletionLimit),
+                    )
+                  }
+                >
+                  Prev
+                </button>
+                <span className="admin-muted">offset: {recentCompletionOffset}</span>
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={!hasRecentCompletionNext || recentCompletionLoading}
+                  onClick={() => void loadRecentCompletionChanges(recentCompletionOffset + recentCompletionLimit)}
+                >
+                  Next
+                </button>
+              </div>
+
+              <div className="admin-list compact">
+                {recentCompletionChanges.map((item) => {
+                  const target = recentItemToLookupTarget(item);
+                  const sourceLabel = item.source ? CHANGE_SOURCE_LABEL[item.source] : "-";
+                  const lastEpisodeAirDate = formatChangeValue(
+                    item.event_payload?.["last_episode_air_date"],
+                  );
+                  return (
+                    <div key={item.id} className="admin-list-item top">
+                      <div>
+                        <strong>{item.title || `TMDB ${item.tmdb_id || "-"}`}</strong>
+                        <p className="admin-muted">
+                          {sourceLabel} / tmdb:{item.tmdb_id || "-"}
+                          {item.source === "tv_season" ? ` / season:${item.season_number ?? "-"}` : ""}
+                        </p>
+                        <p className="admin-muted">
+                          {item.event_type}: {formatChangeValue(item.from_value)} -&gt;{" "}
+                          {formatChangeValue(item.to_value)}
+                        </p>
+                        {item.event_type === "season_binge_ready" ? (
+                          <p className="admin-muted">last_episode_air_date: {lastEpisodeAirDate}</p>
+                        ) : null}
+                        <p className="admin-muted">{formatDate(item.created_at)}</p>
+                      </div>
+                      <button
+                        type="button"
+                        className="admin-link-btn secondary"
+                        disabled={!target}
+                        onClick={() => {
+                          if (!target) return;
+                          void loadContentLookup(target);
+                        }}
+                      >
+                        Open
+                      </button>
+                    </div>
+                  );
+                })}
+                {recentCompletionLoading ? <p className="admin-muted">Loading...</p> : null}
+                {!recentCompletionLoading && recentCompletionChanges.length === 0 ? (
+                  <p className="admin-muted">No recent completion changes.</p>
+                ) : null}
+              </div>
+            </article>
+          </section>
+        ) : null}
+
+        {tab === "missingCompletion" ? (
+          <section className="admin-section">
+            <article className="admin-card">
+              <div className="admin-inline-actions spread">
+                <h2>완결일 미설정</h2>
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={missingLoading}
+                  onClick={() => void loadMissingContents(0)}
+                >
+                  Refresh
+                </button>
+              </div>
+              <div className="admin-form-grid">
+                <div className="admin-field">
+                  <label>Search</label>
+                  <input
+                    value={contentQ}
+                    onChange={(event) => setContentQ(event.target.value)}
+                    placeholder="title or tmdb id"
+                  />
+                </div>
+                <div className="admin-field">
+                  <label>Media Type</label>
+                  <select
+                    value={contentMediaType}
+                    onChange={(event) => setContentMediaType(event.target.value)}
+                  >
+                    <option value="">All</option>
+                    <option value="movie">movie</option>
+                    <option value="tv">tv</option>
+                    <option value="season">season</option>
+                  </select>
+                </div>
+              </div>
+              <div className="admin-inline-actions">
+                <button
+                  type="button"
+                  className="admin-link-btn"
+                  disabled={missingLoading}
+                  onClick={() => void loadMissingContents(0)}
+                >
+                  Search
+                </button>
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={missingLoading}
+                  onClick={() => {
+                    setContentQ("");
+                    setContentMediaType("");
+                    setMissingOffset(0);
+                    setMissingLastCount(0);
+                    setMissingContents([]);
+                  }}
+                >
+                  Reset
+                </button>
+              </div>
+              <div className="admin-list compact">
+                {missingContents.map((item) => (
+                  <div key={item.key} className="admin-list-item top">
+                    <div>
+                      <strong>{item.title || `TMDB ${item.tmdb_id}`}</strong>
+                      <p className="admin-muted">
+                        {CONTENT_MEDIA_LABEL[item.media_type]} / tmdb:{item.tmdb_id}
+                        {item.media_type === "season" ? ` / season:${item.season_number}` : ""}
+                      </p>
+                      <p className="admin-muted">
+                        effective final: {item.effective.final_state || "-"} / missing date
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="admin-link-btn secondary"
+                      onClick={() => void loadContentLookup(item)}
+                    >
+                      Open
+                    </button>
+                  </div>
+                ))}
+                {missingLoading ? <p className="admin-muted">Loading...</p> : null}
+                {!missingLoading && missingContents.length === 0 ? (
+                  <p className="admin-muted">No missing items.</p>
+                ) : null}
+              </div>
+              <div className="admin-inline-actions spread">
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={!hasMissingPrev || missingLoading}
+                  onClick={() => void loadMissingContents(Math.max(0, missingOffset - missingLimit))}
+                >
+                  Prev
+                </button>
+                <span className="admin-muted">offset: {missingOffset}</span>
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={!hasMissingNext || missingLoading}
+                  onClick={() => void loadMissingContents(missingOffset + missingLimit)}
+                >
+                  Next
+                </button>
+              </div>
+            </article>
+          </section>
+        ) : null}
+
+        {tab === "missingPublication" ? (
+          <section className="admin-section">
+            <article className="admin-card">
+              <div className="admin-inline-actions spread">
+                <h2>공개일 미설정</h2>
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={missingPublicationLoading}
+                  onClick={() => void loadMissingPublicationContents(0)}
+                >
+                  Refresh
+                </button>
+              </div>
+              <div className="admin-form-grid">
+                <div className="admin-field">
+                  <label>Search</label>
+                  <input
+                    value={contentQ}
+                    onChange={(event) => setContentQ(event.target.value)}
+                    placeholder="title or tmdb id"
+                  />
+                </div>
+                <div className="admin-field">
+                  <label>Media Type</label>
+                  <select
+                    value={contentMediaType}
+                    onChange={(event) => setContentMediaType(event.target.value)}
+                  >
+                    <option value="">All</option>
+                    <option value="movie">movie</option>
+                    <option value="tv">tv</option>
+                    <option value="season">season</option>
+                  </select>
+                </div>
+              </div>
+              <div className="admin-inline-actions">
+                <button
+                  type="button"
+                  className="admin-link-btn"
+                  disabled={missingPublicationLoading}
+                  onClick={() => void loadMissingPublicationContents(0)}
+                >
+                  Search
+                </button>
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={missingPublicationLoading}
+                  onClick={() => {
+                    setContentQ("");
+                    setContentMediaType("");
+                    setMissingPublicationOffset(0);
+                    setMissingPublicationLastCount(0);
+                    setMissingPublicationContents([]);
+                  }}
+                >
+                  Reset
+                </button>
+              </div>
+              <div className="admin-list compact">
+                {missingPublicationContents.map((item) => (
+                  <div key={item.key} className="admin-list-item top">
+                    <div>
+                      <strong>{item.title || `TMDB ${item.tmdb_id}`}</strong>
+                      <p className="admin-muted">
+                        {CONTENT_MEDIA_LABEL[item.media_type]} / tmdb:{item.tmdb_id}
+                        {item.media_type === "season" ? ` / season:${item.season_number}` : ""}
+                      </p>
+                      <p className="admin-muted">
+                        effective release: {item.effective.release_date || "-"} / next air:{" "}
+                        {item.effective.next_air_date || "-"}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="admin-link-btn secondary"
+                      onClick={() => void loadContentLookup(item)}
+                    >
+                      Open
+                    </button>
+                  </div>
+                ))}
+                {missingPublicationLoading ? <p className="admin-muted">Loading...</p> : null}
+                {!missingPublicationLoading && missingPublicationContents.length === 0 ? (
+                  <p className="admin-muted">No missing items.</p>
+                ) : null}
+              </div>
+              <div className="admin-inline-actions spread">
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={!hasMissingPublicationPrev || missingPublicationLoading}
+                  onClick={() =>
+                    void loadMissingPublicationContents(
+                      Math.max(0, missingPublicationOffset - missingPublicationLimit),
+                    )
+                  }
+                >
+                  Prev
+                </button>
+                <span className="admin-muted">offset: {missingPublicationOffset}</span>
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={!hasMissingPublicationNext || missingPublicationLoading}
+                  onClick={() =>
+                    void loadMissingPublicationContents(
+                      missingPublicationOffset + missingPublicationLimit,
+                    )
+                  }
+                >
+                  Next
+                </button>
+              </div>
+            </article>
+          </section>
+        ) : null}
+
+        {tab === "opsLog" ? (
+          <section className="admin-section">
+            <article className="admin-card">
+              <div className="admin-inline-actions spread">
+                <h2>운영로그</h2>
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={contentAuditLoading}
+                  onClick={() => void loadContentAuditLogs(0)}
+                >
+                  Refresh
+                </button>
+              </div>
+              <div className="admin-form-grid">
+                <div className="admin-field">
+                  <label>Search</label>
+                  <input
+                    value={contentQ}
+                    onChange={(event) => setContentQ(event.target.value)}
+                    placeholder="title or tmdb id"
+                  />
+                </div>
+                <div className="admin-field">
+                  <label>Action Type</label>
+                  <select
+                    value={contentAuditActionType}
+                    onChange={(event) => setContentAuditActionType(event.target.value)}
+                  >
+                    <option value="">All</option>
+                    <option value="OVERRIDE_UPSERT">OVERRIDE_UPSERT</option>
+                    <option value="OVERRIDE_DELETE">OVERRIDE_DELETE</option>
+                  </select>
+                </div>
+              </div>
+              <div className="admin-inline-actions">
+                <button
+                  type="button"
+                  className="admin-link-btn"
+                  disabled={contentAuditLoading}
+                  onClick={() => void loadContentAuditLogs(0)}
+                >
+                  Search
+                </button>
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={contentAuditLoading}
+                  onClick={() => {
+                    setContentQ("");
+                    setContentAuditActionType("");
+                    setContentAuditOffset(0);
+                    setContentAuditLastCount(0);
+                    setContentAuditLogs([]);
+                  }}
+                >
+                  Reset
+                </button>
+              </div>
+              <div className="admin-list compact">
+                {contentAuditLogs.map((log) => (
+                  <div key={log.id} className="admin-list-item top">
+                    <div>
+                      <strong>{log.title || `TMDB ${log.tmdb_id}`}</strong>
+                      <p className="admin-muted">
+                        {log.action_type} / {CONTENT_MEDIA_LABEL[log.media_type]} / tmdb:{log.tmdb_id}
+                        {log.media_type === "season" ? ` / season:${log.season_number}` : ""}
+                      </p>
+                      <p className="admin-muted">
+                        effective final: {log.effective_final_state || "-"} /{" "}
+                        {log.effective_final_completed_at || "-"}
+                      </p>
+                      <p className="admin-muted">
+                        by: {log.admin_email || "-"} / reason: {log.reason || "-"}
+                      </p>
+                    </div>
+                    <span className="admin-muted">{formatDate(log.created_at)}</span>
+                  </div>
+                ))}
+                {contentAuditLoading ? <p className="admin-muted">Loading...</p> : null}
+                {!contentAuditLoading && contentAuditLogs.length === 0 ? (
+                  <p className="admin-muted">No audit logs.</p>
+                ) : null}
+              </div>
+              <div className="admin-inline-actions spread">
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={!hasContentAuditPrev || contentAuditLoading}
+                  onClick={() =>
+                    void loadContentAuditLogs(Math.max(0, contentAuditOffset - contentAuditLimit))
+                  }
+                >
+                  Prev
+                </button>
+                <span className="admin-muted">offset: {contentAuditOffset}</span>
+                <button
+                  type="button"
+                  className="admin-link-btn secondary"
+                  disabled={!hasContentAuditNext || contentAuditLoading}
+                  onClick={() => void loadContentAuditLogs(contentAuditOffset + contentAuditLimit)}
+                >
+                  Next
+                </button>
+              </div>
+            </article>
           </section>
         ) : null}
 
