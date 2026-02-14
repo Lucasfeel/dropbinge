@@ -152,10 +152,58 @@ _ALLOWED_CONTENT_ACTION_TYPES = {
 }
 
 _ADMIN_CONTENT_SELECT_SQL = """
+    WITH targets AS (
+        SELECT DISTINCT
+            target.media_type,
+            target.tmdb_id,
+            target.season_number
+        FROM (
+            SELECT
+                c.media_type,
+                c.tmdb_id,
+                c.season_number
+            FROM tmdb_cache c
+            WHERE c.media_type IN ('movie', 'tv', 'season')
+
+            UNION
+
+            SELECT
+                CASE
+                    WHEN c.media_type = 'http:movie_detail' THEN 'movie'
+                    WHEN c.media_type = 'http:tv_detail' THEN 'tv'
+                    WHEN c.media_type = 'http:tv_season_detail' THEN 'season'
+                    ELSE NULL
+                END AS media_type,
+                c.tmdb_id,
+                CASE
+                    WHEN c.media_type = 'http:tv_season_detail' THEN c.season_number
+                    ELSE -1
+                END AS season_number
+            FROM tmdb_cache c
+            WHERE c.media_type IN ('http:movie_detail', 'http:tv_detail', 'http:tv_season_detail')
+
+            UNION
+
+            SELECT
+                CASE
+                    WHEN f.target_type = 'movie' THEN 'movie'
+                    WHEN f.target_type = 'tv_full' THEN 'tv'
+                    WHEN f.target_type = 'tv_season' THEN 'season'
+                    ELSE NULL
+                END AS media_type,
+                f.tmdb_id,
+                CASE
+                    WHEN f.target_type = 'tv_season' THEN COALESCE(f.season_number, -1)
+                    ELSE -1
+                END AS season_number
+            FROM follows f
+        ) target
+        WHERE target.media_type IS NOT NULL
+    )
     SELECT
-        c.media_type,
-        c.tmdb_id,
-        c.season_number,
+        t.media_type,
+        t.tmdb_id,
+        t.season_number,
         c.status_raw,
         c.release_date,
         c.first_air_date,
@@ -169,11 +217,11 @@ _ADMIN_CONTENT_SELECT_SQL = """
         c.next_episode_date,
         c.final_state,
         c.final_completed_at,
-        c.payload,
-        pt.payload AS parent_tv_payload,
-        c.fetched_at,
-        c.expires_at,
-        c.updated_at,
+        COALESCE(c.payload, d.payload) AS payload,
+        COALESCE(pt.payload, ptd.payload) AS parent_tv_payload,
+        COALESCE(c.fetched_at, d.fetched_at) AS fetched_at,
+        COALESCE(c.expires_at, d.expires_at) AS expires_at,
+        COALESCE(c.updated_at, d.updated_at) AS updated_at,
         o.id AS override_id,
         o.override_status_raw,
         o.override_release_date,
@@ -184,16 +232,31 @@ _ADMIN_CONTENT_SELECT_SQL = """
         o.admin_email AS override_admin_email,
         o.created_at AS override_created_at,
         o.updated_at AS override_updated_at
-    FROM tmdb_cache c
+    FROM targets t
+    LEFT JOIN tmdb_cache c
+      ON c.media_type = t.media_type
+     AND c.tmdb_id = t.tmdb_id
+     AND c.season_number = t.season_number
+    LEFT JOIN tmdb_cache d
+      ON (
+          (t.media_type = 'movie' AND d.media_type = 'http:movie_detail' AND d.tmdb_id = t.tmdb_id AND d.season_number = -1)
+          OR (t.media_type = 'tv' AND d.media_type = 'http:tv_detail' AND d.tmdb_id = t.tmdb_id AND d.season_number = -1)
+          OR (t.media_type = 'season' AND d.media_type = 'http:tv_season_detail' AND d.tmdb_id = t.tmdb_id AND d.season_number = t.season_number)
+      )
     LEFT JOIN admin_tmdb_overrides o
-      ON o.media_type = c.media_type
-     AND o.tmdb_id = c.tmdb_id
-     AND o.season_number = c.season_number
+      ON o.media_type = t.media_type
+     AND o.tmdb_id = t.tmdb_id
+     AND o.season_number = t.season_number
     LEFT JOIN tmdb_cache pt
-      ON c.media_type = 'season'
-     AND pt.media_type = 'tv'
-     AND pt.tmdb_id = c.tmdb_id
+      ON t.media_type = 'season'
+      AND pt.media_type = 'tv'
+     AND pt.tmdb_id = t.tmdb_id
      AND pt.season_number = -1
+    LEFT JOIN tmdb_cache ptd
+      ON t.media_type = 'season'
+     AND ptd.media_type = 'http:tv_detail'
+     AND ptd.tmdb_id = t.tmdb_id
+     AND ptd.season_number = -1
 """
 
 
@@ -421,9 +484,9 @@ def _fetch_admin_content_row(conn, media_type, tmdb_id, season_number):
         cursor.execute(
             f"""
             {_ADMIN_CONTENT_SELECT_SQL}
-            WHERE c.media_type = %s
-              AND c.tmdb_id = %s
-              AND c.season_number = %s
+            WHERE t.media_type = %s
+              AND t.tmdb_id = %s
+              AND t.season_number = %s
             LIMIT 1;
             """,
             (media_type, tmdb_id, season_number),
@@ -732,10 +795,10 @@ def admin_contents_search(payload):
     params = []
 
     if media_type:
-        sql += " AND c.media_type = %s"
+        sql += " AND t.media_type = %s"
         params.append(media_type)
     else:
-        sql += " AND c.media_type = ANY(%s)"
+        sql += " AND t.media_type = ANY(%s)"
         params.append(_ALLOWED_MEDIA_TYPES_LIST)
     if has_override is True:
         sql += " AND o.id IS NOT NULL"
@@ -752,14 +815,22 @@ def admin_contents_search(payload):
     if q:
         sql += """
             AND (
-                COALESCE(c.payload->>'title', c.payload->>'name', pt.payload->>'name', '') ILIKE %s
-                OR CAST(c.tmdb_id AS TEXT) = %s
+                COALESCE(
+                    c.payload->>'title',
+                    c.payload->>'name',
+                    d.payload->>'title',
+                    d.payload->>'name',
+                    pt.payload->>'name',
+                    ptd.payload->>'name',
+                    ''
+                ) ILIKE %s
+                OR CAST(t.tmdb_id AS TEXT) = %s
             )
         """
         params.extend([f"%{q}%", q])
 
     sql += """
-        ORDER BY COALESCE(o.updated_at, c.updated_at) DESC, c.tmdb_id DESC, c.season_number DESC
+        ORDER BY COALESCE(o.updated_at, COALESCE(c.updated_at, d.updated_at)) DESC NULLS LAST, t.tmdb_id DESC, t.season_number DESC
         LIMIT %s OFFSET %s
     """
     params.extend([limit, offset])
@@ -834,8 +905,8 @@ def admin_contents_overrides(payload):
             o.admin_email AS override_admin_email,
             o.created_at AS override_created_at,
             o.updated_at AS override_updated_at,
-            c.payload,
-            pt.payload AS parent_tv_payload,
+            COALESCE(c.payload, d.payload) AS payload,
+            COALESCE(pt.payload, ptd.payload) AS parent_tv_payload,
             c.status_raw,
             c.final_state,
             c.final_completed_at
@@ -844,11 +915,22 @@ def admin_contents_overrides(payload):
           ON c.media_type = o.media_type
          AND c.tmdb_id = o.tmdb_id
          AND c.season_number = o.season_number
+        LEFT JOIN tmdb_cache d
+          ON (
+              (o.media_type = 'movie' AND d.media_type = 'http:movie_detail' AND d.tmdb_id = o.tmdb_id AND d.season_number = -1)
+              OR (o.media_type = 'tv' AND d.media_type = 'http:tv_detail' AND d.tmdb_id = o.tmdb_id AND d.season_number = -1)
+              OR (o.media_type = 'season' AND d.media_type = 'http:tv_season_detail' AND d.tmdb_id = o.tmdb_id AND d.season_number = o.season_number)
+          )
         LEFT JOIN tmdb_cache pt
           ON o.media_type = 'season'
          AND pt.media_type = 'tv'
          AND pt.tmdb_id = o.tmdb_id
          AND pt.season_number = -1
+        LEFT JOIN tmdb_cache ptd
+          ON o.media_type = 'season'
+         AND ptd.media_type = 'http:tv_detail'
+         AND ptd.tmdb_id = o.tmdb_id
+         AND ptd.season_number = -1
         WHERE 1=1
     """
     params = []
@@ -858,7 +940,15 @@ def admin_contents_overrides(payload):
     if q:
         sql += """
             AND (
-                COALESCE(c.payload->>'title', c.payload->>'name', pt.payload->>'name', '') ILIKE %s
+                COALESCE(
+                    c.payload->>'title',
+                    c.payload->>'name',
+                    d.payload->>'title',
+                    d.payload->>'name',
+                    pt.payload->>'name',
+                    ptd.payload->>'name',
+                    ''
+                ) ILIKE %s
                 OR CAST(o.tmdb_id AS TEXT) = %s
             )
         """
@@ -1143,21 +1233,29 @@ def admin_contents_missing_final_date(payload):
     """
     params = []
     if media_type:
-        sql += " AND c.media_type = %s"
+        sql += " AND t.media_type = %s"
         params.append(media_type)
     else:
-        sql += " AND c.media_type = ANY(%s)"
+        sql += " AND t.media_type = ANY(%s)"
         params.append(_ALLOWED_MEDIA_TYPES_LIST)
     if q:
         sql += """
             AND (
-                COALESCE(c.payload->>'title', c.payload->>'name', pt.payload->>'name', '') ILIKE %s
-                OR CAST(c.tmdb_id AS TEXT) = %s
+                COALESCE(
+                    c.payload->>'title',
+                    c.payload->>'name',
+                    d.payload->>'title',
+                    d.payload->>'name',
+                    pt.payload->>'name',
+                    ptd.payload->>'name',
+                    ''
+                ) ILIKE %s
+                OR CAST(t.tmdb_id AS TEXT) = %s
             )
         """
         params.extend([f"%{q}%", q])
     sql += """
-        ORDER BY COALESCE(o.updated_at, c.updated_at) DESC, c.tmdb_id DESC, c.season_number DESC
+        ORDER BY COALESCE(o.updated_at, COALESCE(c.updated_at, d.updated_at)) DESC NULLS LAST, t.tmdb_id DESC, t.season_number DESC
         LIMIT %s OFFSET %s
     """
     params.extend([limit, offset])
@@ -1208,8 +1306,8 @@ def admin_content_audit_logs(payload):
             l.tmdb_id,
             l.season_number,
             l.payload,
-            c.payload AS cache_payload,
-            pt.payload AS parent_tv_payload,
+            COALESCE(c.payload, d.payload) AS cache_payload,
+            COALESCE(pt.payload, ptd.payload) AS parent_tv_payload,
             c.status_raw,
             c.final_state,
             c.final_completed_at,
@@ -1220,11 +1318,22 @@ def admin_content_audit_logs(payload):
           ON c.media_type = l.media_type
          AND c.tmdb_id = l.tmdb_id
          AND c.season_number = l.season_number
+        LEFT JOIN tmdb_cache d
+          ON (
+              (l.media_type = 'movie' AND d.media_type = 'http:movie_detail' AND d.tmdb_id = l.tmdb_id AND d.season_number = -1)
+              OR (l.media_type = 'tv' AND d.media_type = 'http:tv_detail' AND d.tmdb_id = l.tmdb_id AND d.season_number = -1)
+              OR (l.media_type = 'season' AND d.media_type = 'http:tv_season_detail' AND d.tmdb_id = l.tmdb_id AND d.season_number = l.season_number)
+          )
         LEFT JOIN tmdb_cache pt
           ON l.media_type = 'season'
          AND pt.media_type = 'tv'
          AND pt.tmdb_id = l.tmdb_id
          AND pt.season_number = -1
+        LEFT JOIN tmdb_cache ptd
+          ON l.media_type = 'season'
+         AND ptd.media_type = 'http:tv_detail'
+         AND ptd.tmdb_id = l.tmdb_id
+         AND ptd.season_number = -1
         LEFT JOIN admin_tmdb_overrides o
           ON o.media_type = l.media_type
          AND o.tmdb_id = l.tmdb_id
@@ -1244,7 +1353,15 @@ def admin_content_audit_logs(payload):
     if q:
         sql += """
             AND (
-                COALESCE(c.payload->>'title', c.payload->>'name', pt.payload->>'name', '') ILIKE %s
+                COALESCE(
+                    c.payload->>'title',
+                    c.payload->>'name',
+                    d.payload->>'title',
+                    d.payload->>'name',
+                    pt.payload->>'name',
+                    ptd.payload->>'name',
+                    ''
+                ) ILIKE %s
                 OR CAST(l.tmdb_id AS TEXT) = %s
             )
         """
