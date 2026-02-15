@@ -82,6 +82,7 @@ export const HomePage = () => {
           items: response.results,
           page: response.page,
           totalPages: response.total_pages,
+          hasMore: typeof response.has_more === "boolean" ? response.has_more : null,
           updatedAt: Date.now(),
         });
       } catch (error) {

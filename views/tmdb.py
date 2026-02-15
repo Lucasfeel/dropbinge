@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
@@ -29,6 +30,43 @@ def _log_cache(kind, cache_status, latency_ms):
     logger.info("tmdb_cache kind=%s status=%s upstream_ms=%s", kind, cache_status, latency_ms)
 
 
+def _safe_int(value, default):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _has_more_pages(page, total_pages):
+    normalized_page = max(_safe_int(page, 1), 1)
+    normalized_total_pages = max(_safe_int(total_pages, 1), 1)
+    return normalized_page < normalized_total_pages
+
+
+def _list_debug_enabled():
+    return os.getenv("TMDB_LIST_DEBUG") == "1"
+
+
+def _log_list_debug(
+    list_name,
+    requested_page,
+    returned_len,
+    *,
+    tmdb_pages_fetched=1,
+    filtered_out_count=0,
+):
+    if not _list_debug_enabled():
+        return
+    logger.info(
+        "tmdb_list_debug list_name=%s requested_page=%s returned_len=%s tmdb_pages_fetched=%s filtered_out_count=%s",
+        list_name,
+        requested_page,
+        returned_len,
+        tmdb_pages_fetched,
+        filtered_out_count,
+    )
+
+
 def _normalized_title(item, media_type):
     resolved_media = media_type or item.get("media_type") or "movie"
     title = item.get("title") or item.get("name") or f"TMDB {item.get('id')}"
@@ -52,13 +90,16 @@ def _normalized_title(item, media_type):
 
 
 def _normalize_list_payload(payload, media_type):
+    page = max(_safe_int(payload.get("page"), 1), 1)
+    total_pages = max(_safe_int(payload.get("total_pages"), 1), 1)
     results = payload.get("results") or []
     normalized = [
         _normalized_title(item, media_type) for item in results if isinstance(item, dict) and item.get("id")
     ]
     return {
-        "page": payload.get("page", 1),
-        "total_pages": payload.get("total_pages", 1),
+        "page": page,
+        "total_pages": total_pages,
+        "has_more": _has_more_pages(page, total_pages),
         "results": normalized,
     }
 
@@ -88,12 +129,33 @@ def _list_endpoint(path, fetcher, media_type, params, *, cache_ttl_seconds=None,
         if cache_enabled:
             cached = tmdb_http_cache.get_cached(None, *cache_key)
             if cached is not None:
+                cached_results = cached.get("results") if isinstance(cached, dict) else []
                 _log_cache(path, "HIT", 0)
+                _log_list_debug(
+                    path,
+                    params.get("page"),
+                    len(cached_results or []),
+                    tmdb_pages_fetched=0,
+                    filtered_out_count=0,
+                )
                 return _json_response(cached, cache_status="HIT")
         start = time.perf_counter()
         payload = fetcher(**params)
         latency_ms = int((time.perf_counter() - start) * 1000)
         normalized = _normalize_list_payload(payload, media_type)
+        debug_payload = payload.get("_list_debug") if isinstance(payload, dict) else None
+        debug_tmdb_pages_fetched = 1
+        debug_filtered_out = 0
+        if isinstance(debug_payload, dict):
+            debug_tmdb_pages_fetched = max(_safe_int(debug_payload.get("tmdb_pages_fetched"), 1), 0)
+            debug_filtered_out = max(_safe_int(debug_payload.get("filtered_out_count"), 0), 0)
+        _log_list_debug(
+            path,
+            params.get("page"),
+            len(normalized.get("results") or []),
+            tmdb_pages_fetched=debug_tmdb_pages_fetched,
+            filtered_out_count=debug_filtered_out,
+        )
         cache_status = "BYPASS"
         if cache_enabled:
             tmdb_http_cache.set_cached(
@@ -500,19 +562,8 @@ def list_movie_upcoming():
     language = request.args.get("language")
     region = request.args.get("region")
     params = {"page": page, "language": language, "region": region}
-
-    def fetcher(**kwargs):
-        payload = tmdb_client.list_movie_upcoming(**kwargs)
-        results = payload.get("results") or []
-        today = date.today().isoformat()
-        payload["results"] = [
-            item
-            for item in results
-            if not (item.get("release_date") and item.get("release_date") <= today)
-        ]
-        return payload
-
-    return _list_endpoint("/movie/upcoming", fetcher, "movie", params)
+    # Keep TMDB upcoming paging intact; post-filtering causes unstable short pages and chained loads.
+    return _list_endpoint("/movie/upcoming", tmdb_client.list_movie_upcoming, "movie", params)
 
 
 @tmdb_bp.get("/list/movie/out_now")
@@ -603,7 +654,15 @@ def list_tv_seasons():
         if cache_enabled:
             cached = tmdb_http_cache.get_cached(None, *cache_key)
             if cached is not None:
+                cached_results = cached.get("results") if isinstance(cached, dict) else []
                 _log_cache("tv_seasons_list", "HIT", 0)
+                _log_list_debug(
+                    f"/tv/seasons/{list_key}",
+                    page,
+                    len(cached_results or []),
+                    tmdb_pages_fetched=0,
+                    filtered_out_count=0,
+                )
                 return _json_response(cached, cache_status="HIT")
         if list_key == "popular":
             base_payload = tmdb_client.list_tv_popular(page=page, language=language)
@@ -740,9 +799,12 @@ def list_tv_seasons():
                         "series_name": series_name,
                     }
                 )
+        response_page = max(_safe_int(base_payload.get("page"), page), 1)
+        response_total_pages = max(_safe_int(base_payload.get("total_pages"), 1), 1)
         response = {
-            "page": base_payload.get("page", page),
-            "total_pages": base_payload.get("total_pages", 1),
+            "page": response_page,
+            "total_pages": response_total_pages,
+            "has_more": _has_more_pages(response_page, response_total_pages),
             "results": season_items,
         }
         cache_status = "BYPASS"
@@ -757,6 +819,13 @@ def list_tv_seasons():
             )
             cache_status = "MISS"
         _log_cache("tv_seasons_list", cache_status, 0)
+        _log_list_debug(
+            f"/tv/seasons/{list_key}",
+            page,
+            len(response.get("results") or []),
+            tmdb_pages_fetched=1,
+            filtered_out_count=0,
+        )
         return _json_response(response, cache_status=cache_status)
     except tmdb_client.TMDBConfigError:
         return _tmdb_error_response(

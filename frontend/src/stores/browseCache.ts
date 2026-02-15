@@ -4,6 +4,7 @@ export type BrowseCacheValue = {
   items: TitleSummary[];
   page: number;
   totalPages: number | null;
+  hasMore?: boolean | null;
   updatedAt: number;
 };
 

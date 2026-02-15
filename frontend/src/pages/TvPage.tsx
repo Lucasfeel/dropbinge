@@ -34,6 +34,7 @@ export const TvPage = () => {
   const [browseItems, setBrowseItems] = useState<TitleSummary[]>([]);
   const [browsePage, setBrowsePage] = useState(1);
   const [totalPages, setTotalPages] = useState<number | null>(null);
+  const [hasMoreOverride, setHasMoreOverride] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(false);
@@ -69,14 +70,18 @@ export const TvPage = () => {
         const response = await fetchTvSeasons(nextPage, filter);
         if (!mountedRef.current || cacheKeyRef.current !== requestKey) return;
         const nextItems = replace ? response.results : [...browseItemsRef.current, ...response.results];
+        const resolvedHasMore =
+          typeof response.has_more === "boolean" ? response.has_more : null;
         browseItemsRef.current = nextItems;
         setBrowseItems(nextItems);
         setBrowsePage(response.page);
         setTotalPages(response.total_pages);
+        setHasMoreOverride(resolvedHasMore);
         setBrowseCache(requestKey, {
           items: nextItems,
           page: response.page,
           totalPages: response.total_pages,
+          hasMore: resolvedHasMore,
           updatedAt: Date.now(),
         });
       } catch (err) {
@@ -114,10 +119,12 @@ export const TvPage = () => {
       setBrowseItems(cached.items);
       setBrowsePage(cached.page);
       setTotalPages(cached.totalPages);
+      setHasMoreOverride(cached.hasMore ?? null);
       setError(null);
       setLoading(false);
     } else {
       setError(null);
+      setHasMoreOverride(null);
       if (browseItemsRef.current.length === 0) {
         setBrowsePage(1);
         setTotalPages(null);
@@ -142,10 +149,19 @@ export const TvPage = () => {
     return browseItems;
   }, [browseItems, sort]);
 
-  const hasMore = !error && (totalPages === null ? true : browsePage < totalPages);
+  const hasMore = !error && (hasMoreOverride ?? (totalPages === null ? true : browsePage < totalPages));
   const isRefreshing = loading && browseItems.length > 0;
   const loadMore = useCallback(() => {
     if (!hasMore || loading || error) return;
+    if (import.meta.env.DEV) {
+      console.debug("[TvPage] loadMore", {
+        page: browsePage,
+        nextPage: browsePage + 1,
+        hasMore,
+        loading,
+        itemsCount: browseItemsRef.current.length,
+      });
+    }
     void loadBrowse(browsePage + 1, false, cacheKey);
   }, [browsePage, cacheKey, error, hasMore, loadBrowse, loading]);
   const sentinelRef = useInfiniteScroll({ onLoadMore: loadMore, hasMore, loading });
