@@ -93,6 +93,5 @@ export type TitleSummary = {
 export type TitleSummaryResponse = {
   page: number;
   total_pages: number;
-  has_more?: boolean;
   results: TitleSummary[];
 };

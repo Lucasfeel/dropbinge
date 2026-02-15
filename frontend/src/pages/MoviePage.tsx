@@ -20,8 +20,6 @@ const DEFAULT_FILTER = "upcoming";
 const FILTER_KEYS = new Set(FILTERS.map((item) => item.key));
 const UPCOMING_SKELETON_DELAY_MS = 180;
 const UPCOMING_SKELETON_MIN_MS = 550;
-const UPCOMING_PREFILL_MIN_ITEMS = 12;
-const UPCOMING_PREFILL_MAX_PAGES = 3;
 
 export const MoviePage = () => {
   const { items } = useFollowStore();
@@ -33,7 +31,6 @@ export const MoviePage = () => {
   const [browseItems, setBrowseItems] = useState<TitleSummary[]>([]);
   const [browsePage, setBrowsePage] = useState(1);
   const [totalPages, setTotalPages] = useState<number | null>(null);
-  const [hasMoreOverride, setHasMoreOverride] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showInitialSkeleton, setShowInitialSkeleton] = useState(false);
@@ -74,65 +71,17 @@ export const MoviePage = () => {
       setError(null);
       setLoading(true);
       try {
-        const deriveHasMore = (
-          page: number,
-          totalPages: number,
-          rawHasMore: boolean | undefined,
-        ) => ({
-          fallbackValue: page < totalPages,
-          rawValue: typeof rawHasMore === "boolean" ? rawHasMore : null,
-        });
-
         const response = await fetcher(nextPage);
         if (!mountedRef.current || cacheKeyRef.current !== requestKey) return;
-        let mergedResults = response.results;
-        let mergedPage = response.page;
-        let mergedTotalPages = response.total_pages;
-        let hasMoreState = deriveHasMore(response.page, response.total_pages, response.has_more);
-        if (
-          replace &&
-          filter === "upcoming" &&
-          nextPage === 1 &&
-          mergedResults.length < UPCOMING_PREFILL_MIN_ITEMS &&
-          (hasMoreState.rawValue ?? hasMoreState.fallbackValue)
-        ) {
-          const seenIds = new Set<number>(mergedResults.map((item) => item.id));
-          const bufferedResults = [...mergedResults];
-          let prefillPagesFetched = 1;
-          while (
-            bufferedResults.length < UPCOMING_PREFILL_MIN_ITEMS &&
-            prefillPagesFetched < UPCOMING_PREFILL_MAX_PAGES &&
-            (hasMoreState.rawValue ?? hasMoreState.fallbackValue)
-          ) {
-            const extraResponse = await fetcher(mergedPage + 1);
-            if (!mountedRef.current || cacheKeyRef.current !== requestKey) return;
-            mergedPage = extraResponse.page;
-            mergedTotalPages = extraResponse.total_pages;
-            hasMoreState = deriveHasMore(
-              extraResponse.page,
-              extraResponse.total_pages,
-              extraResponse.has_more,
-            );
-            extraResponse.results.forEach((item) => {
-              if (seenIds.has(item.id)) return;
-              seenIds.add(item.id);
-              bufferedResults.push(item);
-            });
-            prefillPagesFetched += 1;
-          }
-          mergedResults = bufferedResults;
-        }
-        const nextItems = replace ? mergedResults : [...browseItemsRef.current, ...mergedResults];
+        const nextItems = replace ? response.results : [...browseItemsRef.current, ...response.results];
         browseItemsRef.current = nextItems;
         setBrowseItems(nextItems);
-        setBrowsePage(mergedPage);
-        setTotalPages(mergedTotalPages);
-        setHasMoreOverride(hasMoreState.rawValue);
+        setBrowsePage(response.page);
+        setTotalPages(response.total_pages);
         setBrowseCache(requestKey, {
           items: nextItems,
-          page: mergedPage,
-          totalPages: mergedTotalPages,
-          hasMore: hasMoreState.rawValue,
+          page: response.page,
+          totalPages: response.total_pages,
           updatedAt: Date.now(),
         });
       } catch (err) {
@@ -143,7 +92,7 @@ export const MoviePage = () => {
         setLoading(false);
       }
     },
-    [fetcher, filter],
+    [fetcher],
   );
 
   useEffect(() => {
@@ -183,12 +132,10 @@ export const MoviePage = () => {
       setBrowseItems(cached.items);
       setBrowsePage(cached.page);
       setTotalPages(cached.totalPages);
-      setHasMoreOverride(cached.hasMore ?? null);
       setError(null);
       setLoading(false);
     } else {
       setError(null);
-      setHasMoreOverride(null);
       if (browseItemsRef.current.length === 0) {
         setBrowsePage(1);
         setTotalPages(null);
@@ -272,21 +219,12 @@ export const MoviePage = () => {
     return browseItems;
   }, [browseItems, sort]);
 
-  const hasMore = !error && (hasMoreOverride ?? (totalPages === null ? true : browsePage < totalPages));
+  const hasMore = !error && (totalPages === null ? true : browsePage < totalPages);
   const isRefreshing = loading && browseItems.length > 0;
   const showBrowseSkeleton = isInitialLoading && (!useUpcomingSkeletonDelay || showInitialSkeleton);
   const showUpcomingLoadingHint = useUpcomingSkeletonDelay && isInitialLoading && !showInitialSkeleton;
   const loadMore = useCallback(() => {
     if (!hasMore || loading || error) return;
-    if (import.meta.env.DEV) {
-      console.debug("[MoviePage] loadMore", {
-        page: browsePage,
-        nextPage: browsePage + 1,
-        hasMore,
-        loading,
-        itemsCount: browseItemsRef.current.length,
-      });
-    }
     void loadBrowse(browsePage + 1, false, cacheKey);
   }, [browsePage, cacheKey, error, hasMore, loadBrowse, loading]);
   const sentinelRef = useInfiniteScroll({ onLoadMore: loadMore, hasMore, loading });

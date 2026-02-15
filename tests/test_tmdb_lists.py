@@ -34,7 +34,6 @@ def test_list_tv_seasons_popular_sets_completed(client, monkeypatch):
 
     assert resp.status_code == 200
     body = resp.get_json()
-    assert body["has_more"] is False
     assert len(body["results"]) == 3
     season_map = {item["season_number"]: item for item in body["results"]}
     assert season_map[1]["is_completed"] is True
@@ -42,7 +41,7 @@ def test_list_tv_seasons_popular_sets_completed(client, monkeypatch):
     assert season_map[3]["is_completed"] is False
 
 
-def test_list_movie_upcoming_keeps_tmdb_results_for_stable_paging(client, monkeypatch):
+def test_list_movie_upcoming_filters_released(client, monkeypatch):
     today = date.today()
     yesterday = (today - timedelta(days=1)).isoformat()
     tomorrow = (today + timedelta(days=1)).isoformat()
@@ -50,7 +49,7 @@ def test_list_movie_upcoming_keeps_tmdb_results_for_stable_paging(client, monkey
     def fake_list_movie_upcoming(page=1, language=None, region=None):
         return {
             "page": page,
-            "total_pages": 3,
+            "total_pages": 1,
             "results": [
                 {"id": 1, "title": "Released", "release_date": yesterday},
                 {"id": 2, "title": "Future", "release_date": tomorrow},
@@ -63,11 +62,19 @@ def test_list_movie_upcoming_keeps_tmdb_results_for_stable_paging(client, monkey
 
     assert resp.status_code == 200
     body = resp.get_json()
-    assert body["has_more"] is True
-    assert [item["id"] for item in body["results"]] == [1, 2]
-    results = {item["id"]: item for item in body["results"]}
-    assert results[1]["is_completed"] is True
-    assert results[2]["is_completed"] is None
+    assert body["results"] == [
+        {
+            "id": 2,
+            "media_type": "movie",
+            "title": "Future",
+            "poster_path": None,
+            "backdrop_path": None,
+            "date": tomorrow,
+            "vote_average": None,
+            "vote_count": None,
+            "is_completed": None,
+        }
+    ]
 
 
 def test_list_movie_popular_sets_completed(client, monkeypatch):
@@ -91,7 +98,6 @@ def test_list_movie_popular_sets_completed(client, monkeypatch):
 
     assert resp.status_code == 200
     body = resp.get_json()
-    assert body["has_more"] is False
     assert body["results"][0]["is_completed"] is True
     assert body["results"][1]["is_completed"] is None
 
